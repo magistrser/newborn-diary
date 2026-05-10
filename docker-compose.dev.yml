@@ -1,0 +1,10 @@
+services:
+  postgres:
+    image: postgres:18.3-alpine3.23
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_DB: 'diary'
+      POSTGRES_USER: 'postgres'
+      POSTGRES_PASSWORD: 'postgres'
+      POSTGRES_HOST_AUTH_METHOD: 'trust'

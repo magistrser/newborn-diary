@@ -1,0 +1,27 @@
+postgres:
+  host: localhost
+  port: 5432
+  db_name: diary
+  user: postgres
+  password: postgres
+  pool_size: 16
+
+llm:
+  base_url: http://192.168.2.243:41234/v1
+  api_key: not-needed
+  model: qwen/qwen3.6-39b
+  # model: qwen3.6-27b@q4_k_xl
+  parser_max_tokens: 4096
+  qa_max_tokens: 4096
+  request_timeout_sec: 600
+
+parser:
+  context_window_hours: 12
+  authors: []
+  import_concurrency: 16
+  timezone: Europe/Moscow
+
+qa:
+  default_window_days: 14
+
+verbose: true
