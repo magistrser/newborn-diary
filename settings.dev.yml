@@ -9,10 +9,10 @@ postgres:
 llm:
   base_url: http://192.168.2.243:41234/v1
   api_key: not-needed
-  model: qwen/qwen3.6-39b
-  # model: qwen3.6-27b@q4_k_xl
+  # model: gemma-4-e4b-it
+  model: gemma-4-26b-a4b-it
   parser_max_tokens: 4096
-  qa_max_tokens: 4096
+  qa_max_tokens: 8192
   request_timeout_sec: 600
 
 parser:

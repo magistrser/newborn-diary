@@ -29,6 +29,12 @@ class PostgresSettings(BaseModel):
         )
 
 
+class LLMTaskSettings(BaseModel):
+    base_url: str | None = Field(default=None)
+    api_key: str | None = Field(default=None)
+    model: str | None = Field(default=None)
+
+
 class LLMSettings(BaseModel):
     base_url: str = Field(...)
     api_key: str = Field(default='not-needed')
@@ -36,6 +42,14 @@ class LLMSettings(BaseModel):
     parser_max_tokens: int = Field(default=1024)
     qa_max_tokens: int = Field(default=2048)
     request_timeout_sec: int = Field(default=600)
+    tasks: dict[str, LLMTaskSettings] = Field(default_factory=dict)
+
+    def for_task(self, task: str) -> 'LLMSettings':
+        override = self.tasks.get(task)  # pylint: disable=no-member
+        if override is None:
+            return self
+        updates = {k: v for k, v in override.model_dump().items() if v is not None}
+        return self.model_copy(update=updates)
 
 
 class ParserSettings(BaseModel):
