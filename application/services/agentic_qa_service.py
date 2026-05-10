@@ -1,6 +1,7 @@
 import json
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -10,8 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from application.services.llm_client import LLMClient
 from application.services.schema_prompt import build_sql_system_prompt
 from application.services.sql_tool import SqlValidationError, _extract_uuid_ids, execute_select, validate_select
-from application.services.qa_service import AnswerResult
 from settings import QASettings
+
+
+@dataclass
+class AnswerResult:
+    answer: str
+    used_window: dict
+    sources: list[uuid.UUID]
 
 
 logger = logging.getLogger(__name__)
@@ -68,6 +75,33 @@ class AgenticQAService:
         self._session = session
         self._settings = qa_settings
 
+    async def _execute_tool_call(
+        self,
+        call: Any,
+        queries: list[str],
+        sources: list[uuid.UUID],
+    ) -> dict:
+        try:
+            args = json.loads(call.function.arguments)  # type: ignore[union-attr]
+        except (json.JSONDecodeError, AttributeError):
+            args = {}
+        sql = args.get('query', '')
+        queries.append(sql)
+        logger.debug('Agentic SQL query:\n%s', sql)
+        try:
+            validate_select(sql)
+            result = await execute_select(
+                self._session,
+                sql,
+                row_cap=self._settings.sql_row_cap,
+                statement_timeout_ms=self._settings.sql_statement_timeout_ms,
+            )
+            sources.extend(_extract_uuid_ids(result))
+        except SqlValidationError as exc:
+            result = {'error': f'rejected: {exc}'}
+        logger.debug('SQL result: %s', result)
+        return result
+
     async def answer(self, question: str) -> AnswerResult:
         now = datetime.now(timezone.utc)
         system_prompt = build_sql_system_prompt(
@@ -94,37 +128,12 @@ class AgenticQAService:
                 logger.debug('Agentic QA done in %d iteration(s)', iteration + 1)
                 return AnswerResult(
                     answer=msg.content or '',
-                    used_window={
-                        'mode': 'agentic',
-                        'iterations': iteration + 1,
-                        'queries': queries,
-                    },
+                    used_window={'mode': 'agentic', 'iterations': iteration + 1, 'queries': queries},
                     sources=sources,
                 )
 
             for call in msg.tool_calls:
-                try:
-                    args = json.loads(call.function.arguments)  # type: ignore[union-attr]
-                except (json.JSONDecodeError, AttributeError):
-                    args = {}
-
-                sql = args.get('query', '')
-                queries.append(sql)
-                logger.debug('Agentic SQL query:\n%s', sql)
-
-                try:
-                    validate_select(sql)
-                    result = await execute_select(
-                        self._session,
-                        sql,
-                        row_cap=self._settings.sql_row_cap,
-                        statement_timeout_ms=self._settings.sql_statement_timeout_ms,
-                    )
-                    sources.extend(_extract_uuid_ids(result))
-                except SqlValidationError as exc:
-                    result = {'error': f'rejected: {exc}'}
-
-                logger.debug('SQL result: %s', result)
+                result = await self._execute_tool_call(call, queries, sources)
                 messages.append({
                     'role': 'tool',
                     'tool_call_id': call.id,
@@ -132,17 +141,10 @@ class AgenticQAService:
                 })
 
         # Iteration cap reached — force a final text answer
-        messages.append({
-            'role': 'user',
-            'content': 'Answer now based only on the data already gathered above.',
-        })
+        messages.append({'role': 'user', 'content': 'Answer now based only on the data already gathered above.'})
         final = await self._llm.chat_text(messages, max_tokens=self._settings.agent_max_tokens)
         return AnswerResult(
             answer=final,
-            used_window={
-                'mode': 'agentic',
-                'iterations': self._settings.max_tool_iterations,
-                'queries': queries,
-            },
+            used_window={'mode': 'agentic', 'iterations': self._settings.max_tool_iterations, 'queries': queries},
             sources=sources,
         )

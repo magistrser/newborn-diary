@@ -60,14 +60,14 @@ async def list_events(
     repo: EventRepositoryDep,
     from_dt: Annotated[datetime | None, Query(alias='from')] = None,
     to_dt: Annotated[datetime | None, Query(alias='to')] = None,
-    type: Annotated[list[EventType] | None, Query()] = None,
+    event_type: Annotated[list[EventType] | None, Query(alias='type')] = None,
     limit: Annotated[int, Query(ge=1, le=1000)] = 200,
     order: Annotated[str, Query(pattern='^(asc|desc)$')] = 'asc',
 ) -> list[EventResponse]:
     events = await repo.list(
         from_dt=from_dt,
         to_dt=to_dt,
-        types=type,
+        types=event_type,
         limit=limit,
         order_asc=(order == 'asc'),
     )
@@ -120,7 +120,7 @@ async def patch_event(
     updated = await repo.update(
         event_id,
         occurred_at=body.occurred_at,
-        type=body.type,
+        event_type=body.type,
         payload=persist_payload,
     )
     await session.commit()
@@ -155,6 +155,17 @@ async def create_events_from_text(
     parser: EventParserDep,
     session: SessionDep,
 ) -> FromTextResponse:
+    # Return already-stored events for this Telegram message without re-parsing.
+    # Handles concurrency between the live bot and the import path: whichever
+    # ingests the message first wins; the second call gets the same events back.
+    if body.source_chat_id is not None and body.source_message_id is not None:
+        existing = await repo.list_by_source_message(
+            source_chat_id=body.source_chat_id,
+            source_message_id=body.source_message_id,
+        )
+        if existing:
+            return FromTextResponse(events=[EventResponse.model_validate(e) for e in existing])
+
     # Fetch recent events for context (last 12h before message)
     from datetime import timedelta
     context_window_start = body.occurred_at - timedelta(hours=12)

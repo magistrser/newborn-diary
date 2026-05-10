@@ -33,14 +33,15 @@ class LLMTaskSettings(BaseModel):
     base_url: str | None = Field(default=None)
     api_key: str | None = Field(default=None)
     model: str | None = Field(default=None)
+    max_tokens: int | None = Field(default=None)
+    request_timeout_sec: int | None = Field(default=None)
 
 
 class LLMSettings(BaseModel):
     base_url: str = Field(...)
     api_key: str = Field(default='not-needed')
     model: str = Field(...)
-    parser_max_tokens: int = Field(default=1024)
-    qa_max_tokens: int = Field(default=2048)
+    max_tokens: int = Field(default=2048)
     request_timeout_sec: int = Field(default=600)
     tasks: dict[str, LLMTaskSettings] = Field(default_factory=dict)
 
@@ -60,7 +61,6 @@ class ParserSettings(BaseModel):
 
 
 class QASettings(BaseModel):
-    default_window_days: int = Field(default=14)
     max_tool_iterations: int = Field(default=5)
     sql_row_cap: int = Field(default=200)
     sql_statement_timeout_ms: int = Field(default=3000)
@@ -81,8 +81,10 @@ def get_settings() -> Settings:
     environment = environ.get('ENVIRONMENT')
 
     match environment:
-        case 'DEVELOPMENT' | 'TEST' | None:
+        case 'DEVELOPMENT' | None:
             settings_path = root_dir / 'settings.dev.yml'
+        case 'TEST':
+            settings_path = root_dir / 'settings.test.yml'
         case 'PRODUCTION':
             settings_path = root_dir / 'settings.yml'
         case invalid:

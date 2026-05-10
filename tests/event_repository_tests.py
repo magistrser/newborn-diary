@@ -40,7 +40,7 @@ async def test_update_type_and_payload(db_session: AsyncSession) -> None:
 
     updated = await repo.update(
         event.id,
-        type=EventType.diaper,
+        event_type=EventType.diaper,
         payload={'kind': 'pee'},
     )
 
@@ -78,3 +78,40 @@ async def test_delete_nonexistent(db_session: AsyncSession) -> None:
     repo = SqlEventRepository(db_session)
     deleted = await repo.delete(uuid.uuid4())
     assert deleted is False
+
+
+# ── list_by_source_message ────────────────────────────────────────────────────
+
+async def test_list_by_source_message_returns_matching_events(db_session: AsyncSession) -> None:
+    repo = SqlEventRepository(db_session)
+    chat_id = 111
+    msg_id = 'msg-42'
+
+    e1 = await repo.save(_make_event(source_type='telegram_live', source_chat_id=chat_id, source_message_id=msg_id))
+    e2 = await repo.save(_make_event(source_type='telegram_export', source_chat_id=chat_id, source_message_id=msg_id))
+
+    result = await repo.list_by_source_message(source_chat_id=chat_id, source_message_id=msg_id)
+
+    result_ids = {e.id for e in result}
+    assert e1.id in result_ids
+    assert e2.id in result_ids
+    assert len(result) == 2
+
+
+async def test_list_by_source_message_returns_empty_for_no_match(db_session: AsyncSession) -> None:
+    repo = SqlEventRepository(db_session)
+    await repo.save(_make_event(source_chat_id=999, source_message_id='other'))
+
+    result = await repo.list_by_source_message(source_chat_id=999, source_message_id='nonexistent')
+    assert result == []
+
+
+async def test_list_by_source_message_ignores_other_chats(db_session: AsyncSession) -> None:
+    repo = SqlEventRepository(db_session)
+    msg_id = 'shared-msg'
+    await repo.save(_make_event(source_chat_id=1, source_message_id=msg_id))
+    await repo.save(_make_event(source_chat_id=2, source_message_id=msg_id))
+
+    result = await repo.list_by_source_message(source_chat_id=1, source_message_id=msg_id)
+    assert len(result) == 1
+    assert result[0].source_chat_id == 1

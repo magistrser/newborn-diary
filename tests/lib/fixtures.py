@@ -15,6 +15,21 @@ def application_client() -> Generator[TestClient, None, None]:
         yield client
 
 
+@pytest.fixture(scope='session')
+def from_text_client(application_client: TestClient) -> Generator[tuple[TestClient, AsyncMock], None, None]:
+    """Reuses the session-scoped application_client TestClient (same BlockingPortal event loop)
+    with the EventParser dependency replaced by an AsyncMock.
+    Yields ``(client, mock_parser)`` so tests can assert on parser calls.
+    Tests must call ``mock_parser.reset_mock()`` before asserting call counts."""
+    from infrastructure.dependencies.llm import get_event_parser
+
+    mock_parser = AsyncMock()
+    mock_parser.parse_message = AsyncMock(return_value=[])
+    app.dependency_overrides[get_event_parser] = lambda: mock_parser
+    yield application_client, mock_parser
+    app.dependency_overrides.pop(get_event_parser, None)
+
+
 @pytest.fixture
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
     from settings import settings

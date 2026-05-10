@@ -273,15 +273,7 @@ class EventParser:
         self._settings = parser_settings
         self._tz = ZoneInfo(parser_settings.timezone)
 
-    async def parse_message(
-        self,
-        text: str,
-        message_date: datetime,
-        recent_events: list[Event],
-        source_type: str = 'telegram_live',
-        source_message_id: str | None = None,
-        source_chat_id: int | None = None,
-    ) -> list[Event]:
+    async def _call_llm(self, text: str, message_date: datetime, recent_events: list[Event]) -> dict:
         local_date = message_date.astimezone(self._tz)
         recent_summary = _compact_event_summary(recent_events)
         user_content = (
@@ -296,7 +288,46 @@ class EventParser:
         logger.debug('LLM prompt:\n%s', user_content)
         raw = await self._llm.chat_json(messages)
         logger.debug('LLM response:\n%s', json.dumps(raw, ensure_ascii=False, indent=2))
+        return raw
 
+    def _build_event(
+        self,
+        parsed: _ParsedEvent,
+        text: str,
+        source_type: str,
+        source_message_id: str | None,
+        source_chat_id: int | None,
+        index: int,
+    ) -> Event | None:
+        try:
+            etype = EventType(parsed.type)
+            payload = _normalise_payload(etype, parsed.payload)
+            return Event(
+                id=uuid.uuid4(),
+                occurred_at=parsed.occurred_at,
+                recorded_at=datetime.now(timezone.utc),
+                type=etype,
+                payload=payload,
+                raw_text=text,
+                source_type=source_type,
+                source_message_id=source_message_id,
+                source_chat_id=source_chat_id,
+                source_event_index=index,
+                parser_version='llm-v1',
+            )
+        except (ValueError, KeyError):
+            return None
+
+    async def parse_message(
+        self,
+        text: str,
+        message_date: datetime,
+        recent_events: list[Event],
+        source_type: str = 'telegram_live',
+        source_message_id: str | None = None,
+        source_chat_id: int | None = None,
+    ) -> list[Event]:
+        raw = await self._call_llm(text, message_date, recent_events)
         try:
             result = _ParseResult.model_validate(raw)
         except (ValidationError, ValueError):
@@ -304,23 +335,10 @@ class EventParser:
 
         events = []
         for idx, parsed in enumerate(result.events):
-            try:
-                etype = EventType(parsed.type)
-                payload = _normalise_payload(etype, parsed.payload)
-                events.append(Event(
-                    id=uuid.uuid4(),
-                    occurred_at=parsed.occurred_at,
-                    recorded_at=datetime.now(timezone.utc),
-                    type=etype,
-                    payload=payload,
-                    raw_text=text,
-                    source_type=source_type,
-                    source_message_id=source_message_id,
-                    source_chat_id=source_chat_id,
-                    source_event_index=idx,
-                    parser_version='llm-v1',
-                ))
-            except (ValueError, KeyError):
+            event = self._build_event(parsed, text, source_type, source_message_id, source_chat_id, idx)
+            if event is not None:
+                events.append(event)
+            else:
                 events.append(_make_note(
                     text, parsed.occurred_at, source_type, source_message_id, source_chat_id,
                 ))

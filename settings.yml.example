@@ -1,0 +1,52 @@
+postgres:
+  host: localhost
+  port: 5432
+  db_name: diary
+  user: postgres
+  password: postgres
+  pool_size: 16
+
+llm:
+  base_url: http://localhost:41234/v1
+  api_key: not-needed
+  model: gemma-4-26b-a4b-it
+  max_tokens: 8192
+  request_timeout_sec: 600
+  # Per-task overrides — any subset of base_url / api_key / model / max_tokens / request_timeout_sec.
+  # Omitting a field inherits the value from the top-level llm block.
+  # Omitting a task entirely uses the top-level llm block as-is.
+  tasks:
+    parser:
+      model: gemma-4-e4b-it
+      max_tokens: 4096
+    router:
+      model: gemma-4-e4b-it
+      max_tokens: 128
+    narrative_qa:
+      base_url: http://localhost:41234/v1
+      api_key: not-needed
+      model: gemma-4-26b-a4b-it
+      max_tokens: 8192
+      request_timeout_sec: 600
+    agentic_qa:
+      base_url: http://localhost:41234/v1
+      api_key: not-needed
+      model: gemma-4-26b-a4b-it
+      max_tokens: 8192
+      request_timeout_sec: 600
+
+parser:
+  context_window_hours: 12
+  authors: []
+  import_concurrency: 4
+  timezone: Europe/Moscow
+
+qa:
+  default_window_days: 14
+  max_tool_iterations: 5
+  sql_row_cap: 200
+  sql_statement_timeout_ms: 3000
+  user_timezone: Europe/Moscow
+  agent_max_tokens: 1024
+
+verbose: false

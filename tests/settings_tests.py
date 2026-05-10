@@ -8,8 +8,7 @@ _BASE = LLMSettings(
     base_url='http://default:41234/v1',
     api_key='default-key',
     model='default-model',
-    parser_max_tokens=1024,
-    qa_max_tokens=2048,
+    max_tokens=2048,
     request_timeout_sec=60,
     tasks={
         'parser': LLMTaskSettings(model='parser-model'),
@@ -22,13 +21,19 @@ _BASE = LLMSettings(
             base_url='http://other/v1',
             api_key='other-key',
             model='other-model',
+            max_tokens=512,
+            request_timeout_sec=120,
+        ),
+        'tokens_only': LLMTaskSettings(
+            max_tokens=256,
+            request_timeout_sec=30,
         ),
     },
 )
 
 
 def test_for_task_returns_self_when_no_override() -> None:
-    result = _BASE.for_task('narrative_qa')
+    result = _BASE.for_task('unconfigured_task')
     assert result is _BASE
 
 
@@ -58,12 +63,21 @@ def test_for_task_all_fields_overridden() -> None:
     assert result.base_url == 'http://other/v1'
     assert result.api_key == 'other-key'
     assert result.model == 'other-model'
+    assert result.max_tokens == 512
+    assert result.request_timeout_sec == 120
 
 
-def test_for_task_preserves_token_limits_and_timeout() -> None:
+def test_for_task_max_tokens_and_timeout_only() -> None:
+    result = _BASE.for_task('tokens_only')
+    assert result.max_tokens == 256
+    assert result.request_timeout_sec == 30
+    assert result.base_url == 'http://default:41234/v1'
+    assert result.model == 'default-model'
+
+
+def test_for_task_preserves_max_tokens_and_timeout_when_not_overridden() -> None:
     result = _BASE.for_task('parser')
-    assert result.parser_max_tokens == _BASE.parser_max_tokens
-    assert result.qa_max_tokens == _BASE.qa_max_tokens
+    assert result.max_tokens == _BASE.max_tokens
     assert result.request_timeout_sec == _BASE.request_timeout_sec
 
 
@@ -87,6 +101,8 @@ def test_llm_task_settings_all_none_by_default() -> None:
     assert t.base_url is None
     assert t.api_key is None
     assert t.model is None
+    assert t.max_tokens is None
+    assert t.request_timeout_sec is None
 
 
 def test_for_task_partial_override_does_not_mutate_base() -> None:
@@ -111,7 +127,7 @@ def test_llm_settings_tasks_validated_as_task_settings() -> None:
     s = LLMSettings(
         base_url='http://h/v1',
         model='m',
-        tasks={'t': {'model': 'override-model'}},
+        tasks={'t': LLMTaskSettings(model='override-model')},
     )
     assert isinstance(s.tasks['t'], LLMTaskSettings)
     assert s.tasks['t'].model == 'override-model'

@@ -1,3 +1,4 @@
+import builtins
 from datetime import datetime
 from uuid import UUID
 
@@ -74,14 +75,14 @@ class SqlEventRepository(AbstractEventRepository):
         event_id: UUID,
         *,
         occurred_at: datetime | None = None,
-        type: EventType | None = None,
+        event_type: EventType | None = None,
         payload: dict | None = None,
     ) -> Event | None:
         values: dict = {}
         if occurred_at is not None:
             values['occurred_at'] = occurred_at
-        if type is not None:
-            values['type'] = type
+        if event_type is not None:
+            values['type'] = event_type
         if payload is not None:
             values['payload'] = payload
         if not values:
@@ -137,3 +138,19 @@ class SqlEventRepository(AbstractEventRepository):
         ).limit(1)
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none() is not None
+
+    async def list_by_source_message(
+        self,
+        source_chat_id: int,
+        source_message_id: str,
+    ) -> builtins.list[Event]:
+        stmt = (
+            select(EventModel)
+            .where(
+                EventModel.source_chat_id == source_chat_id,
+                EventModel.source_message_id == source_message_id,
+            )
+            .order_by(EventModel.source_event_index.asc())
+        )
+        result = await self._session.execute(stmt)
+        return [_to_domain(row) for row in result.scalars()]

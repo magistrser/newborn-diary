@@ -1,3 +1,4 @@
+import uuid
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -121,3 +122,113 @@ async def test_delete_event(application_client: TestClient) -> None:
 async def test_delete_event_not_found(application_client: TestClient) -> None:
     resp = application_client.delete('/api/v1/events/00000000-0000-0000-0000-000000000000')
     assert resp.status_code == 404
+
+
+# ── from-text idempotency ─────────────────────────────────────────────────────
+
+async def test_from_text_returns_existing_events_without_parsing(
+    from_text_client: tuple[TestClient, Any],
+) -> None:
+    """If events already exist for a (source_chat_id, source_message_id) pair,
+    from-text must return them directly and must not invoke the LLM parser."""
+    client, mock_parser = from_text_client
+    mock_parser.reset_mock()
+
+    chat_id = -9000111
+    msg_id = f'idem-{uuid.uuid4().hex}'
+    pre = client.post('/api/v1/events', json={
+        'type': 'sleep_start',
+        'occurred_at': '2026-05-10T10:00:00Z',
+        'payload': {},
+        'source_type': 'telegram_live',
+        'source_chat_id': chat_id,
+        'source_message_id': msg_id,
+    })
+    assert pre.status_code == 201, pre.text
+    created_id = pre.json()['id']
+
+    resp = client.post('/api/v1/events/from-text', json={
+        'text': 'Заснул',
+        'occurred_at': '2026-05-10T10:00:00Z',
+        'source_type': 'telegram_live',
+        'source_chat_id': chat_id,
+        'source_message_id': msg_id,
+    })
+
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert len(data['events']) == 1
+    assert data['events'][0]['id'] == created_id
+    mock_parser.parse_message.assert_not_called()
+
+
+async def test_from_text_returns_existing_events_from_different_source_type(
+    from_text_client: tuple[TestClient, Any],
+) -> None:
+    """Events created via the importer (source_type='telegram_export') must be
+    returned when the live bot processes the same (chat_id, message_id)."""
+    client, mock_parser = from_text_client
+    mock_parser.reset_mock()
+
+    chat_id = -9000222
+    msg_id = f'idem-{uuid.uuid4().hex}'
+    pre = client.post('/api/v1/events', json={
+        'type': 'walk',
+        'occurred_at': '2026-05-10T11:00:00Z',
+        'payload': {},
+        'source_type': 'telegram_export',
+        'source_chat_id': chat_id,
+        'source_message_id': msg_id,
+    })
+    assert pre.status_code == 201, pre.text
+
+    resp = client.post('/api/v1/events/from-text', json={
+        'text': 'Прогулка',
+        'occurred_at': '2026-05-10T11:00:00Z',
+        'source_type': 'telegram_live',   # different source type — same physical message
+        'source_chat_id': chat_id,
+        'source_message_id': msg_id,
+    })
+
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert len(data['events']) == 1
+    assert data['events'][0]['type'] == 'walk'
+    mock_parser.parse_message.assert_not_called()
+
+
+async def test_from_text_calls_parser_when_no_existing_events(
+    from_text_client: tuple[TestClient, Any],
+) -> None:
+    """When no events exist for the source message, the LLM parser is called."""
+    client, mock_parser = from_text_client
+    mock_parser.reset_mock()
+
+    resp = client.post('/api/v1/events/from-text', json={
+        'text': 'Заснул',
+        'occurred_at': '2026-05-10T12:00:00Z',
+        'source_type': 'telegram_live',
+        'source_chat_id': -9000333,
+        'source_message_id': f'new-{uuid.uuid4().hex}',
+    })
+    assert resp.status_code == 201, resp.text
+
+    mock_parser.parse_message.assert_called_once()
+
+
+async def test_from_text_calls_parser_when_source_ids_absent(
+    from_text_client: tuple[TestClient, Any],
+) -> None:
+    """Without source_chat_id / source_message_id the idempotency check is
+    skipped and the parser is always called."""
+    client, mock_parser = from_text_client
+    mock_parser.reset_mock()
+
+    resp = client.post('/api/v1/events/from-text', json={
+        'text': 'Что-то',
+        'occurred_at': '2026-05-10T13:00:00Z',
+        'source_type': 'manual',
+    })
+    assert resp.status_code == 201, resp.text
+
+    mock_parser.parse_message.assert_called_once()

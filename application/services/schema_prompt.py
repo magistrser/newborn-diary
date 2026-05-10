@@ -1,3 +1,4 @@
+import types as _types
 from datetime import datetime
 from enum import Enum
 from typing import Union, get_args, get_origin
@@ -53,31 +54,29 @@ _PAYLOAD_BY_TYPE: dict[EventType, type[BaseModel]] = {
 }
 
 
-def _annotation_to_sql(annotation: object) -> str:
+_SCALAR_TO_SQL: dict[object, str] = {
+    int: 'INTEGER',
+    float: 'FLOAT',
+    str: 'TEXT',
+    datetime: 'TIMESTAMPTZ',
+}
+
+
+def _unwrap_optional(annotation: object) -> object:
     origin = get_origin(annotation)
     if origin is Union:
-        non_none = [a for a in get_args(annotation) if a is not type(None)]
-        if non_none:
-            return _annotation_to_sql(non_none[0])
+        non_none = [a for a in get_args(annotation) if a is not _types.NoneType]
+        return non_none[0] if non_none else annotation
+    if isinstance(annotation, _types.UnionType):
+        non_none = [a for a in get_args(annotation) if a is not _types.NoneType]
+        return non_none[0] if non_none else annotation
+    return annotation
 
-    # Python 3.10+ union syntax (int | None)
-    try:
-        import types as _types
-        if isinstance(annotation, _types.UnionType):
-            non_none = [a for a in get_args(annotation) if a is not type(None)]
-            if non_none:
-                return _annotation_to_sql(non_none[0])
-    except AttributeError:
-        pass
 
-    if annotation is int:
-        return 'INTEGER'
-    if annotation is float:
-        return 'FLOAT'
-    if annotation is str:
-        return 'TEXT'
-    if annotation is datetime:
-        return 'TIMESTAMPTZ'
+def _annotation_to_sql(annotation: object) -> str:
+    annotation = _unwrap_optional(annotation)
+    if annotation in _SCALAR_TO_SQL:
+        return _SCALAR_TO_SQL[annotation]  # type: ignore[index]
     if isinstance(annotation, type) and issubclass(annotation, Enum):
         values = '|'.join(str(e.value) for e in annotation)
         return f'TEXT ({values})'
@@ -139,10 +138,61 @@ CREATE TABLE events (
 
 - Только SELECT (никакого INSERT/UPDATE/DELETE/DDL).
 - Текущее время UTC: {now.isoformat()}.
-- Часовой пояс пользователя: {tz} — используй `AT TIME ZONE '{tz}'` если нужно показать локальное время.
+- Часовой пояс пользователя: {tz} — используй `AT TIME ZONE '{tz}'` для отображения локального времени.
 - Возвращается не более {row_cap} строк (если truncated=true — увеличь агрегацию).
 - Таймаут запроса: {statement_timeout_ms} мс.
 - Если запрос вернул ошибку — исправь SQL и повтори.
 - Когда перечисляешь конкретные события — включай колонку `id` (UUID) в SELECT.
 - После получения данных — дай итоговый ответ на языке вопроса.
-- Отвечай простым текстом без Markdown-разметки, таблиц и HTML-тегов."""
+- Отвечай простым текстом без Markdown-разметки, таблиц и HTML-тегов.
+
+## Фильтрация по дате (КРИТИЧНО)
+
+Когда пользователь спрашивает о событиях "за X число" или "X апреля" и т.п. —
+ВСЕГДА фильтруй по московскому календарному дню, не по UTC.
+
+ПРАВИЛЬНО (один из двух вариантов):
+```sql
+-- Вариант 1: через приведение к московскому времени
+WHERE DATE(occurred_at AT TIME ZONE '{tz}') = '2026-04-28'
+
+-- Вариант 2: явные границы с часовым поясом +03
+WHERE occurred_at >= '2026-04-28 00:00:00+03'
+  AND occurred_at <  '2026-04-29 00:00:00+03'
+```
+
+ЗАПРЕЩЕНО (это UTC-дата, а не московская):
+```sql
+WHERE occurred_at::date = '2026-04-28'         -- неверно
+WHERE occurred_at >= '2026-04-28 00:00:00+00'  -- неверно (UTC, не Москва)
+WHERE occurred_at >= '2026-04-28 00:00:00'     -- неверно (без TZ)
+```
+
+## Подсчёт кормлений (feeding sessions)
+
+Кормление из левой и правой груди подряд — это ОДНО кормление, а не два.
+Правило группировки: несколько событий `feed_breast` считаются одним кормлением,
+если каждое следующее начинается не позже чем через 30 минут после предыдущего.
+Аналогично для `feed_bottle` — каждое отдельное событие является отдельным кормлением,
+если только они не идут подряд в течение 30 минут.
+
+Пример SQL для подсчёта кормлений как сессий (сгруппировать близкие события):
+
+```sql
+WITH feedings AS (
+  SELECT occurred_at,
+         LAG(occurred_at) OVER (ORDER BY occurred_at) AS prev_at
+  FROM events
+  WHERE type IN ('feed_breast', 'feed_bottle')
+    AND occurred_at >= ...
+),
+sessions AS (
+  SELECT occurred_at,
+         SUM(CASE WHEN prev_at IS NULL OR occurred_at - prev_at > INTERVAL '30 minutes' THEN 1 ELSE 0 END)
+           OVER (ORDER BY occurred_at) AS session_id
+  FROM feedings
+)
+SELECT COUNT(DISTINCT session_id) AS feeding_count FROM sessions;
+```
+
+Используй этот подход всякий раз, когда вопрос касается количества кормлений или частоты еды."""

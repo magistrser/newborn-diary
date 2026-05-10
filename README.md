@@ -1,7 +1,7 @@
 # Newborn Diary
 
 Application for storing and querying newborn activity events (sleep, feeding, diapers, etc.).
-Uses a local Qwen3 LLM (OpenAI-compatible) for free-text parsing and question answering.
+Uses a local Qwen3 LLM (OpenAI-compatible) for free-text parsing and SQL-based question answering.
 
 ## Requirements
 
@@ -73,7 +73,9 @@ Key settings:
 - `llm.base_url` — LLM server URL (default `http://localhost:41234/v1`)
 - `llm.model` — model name as registered in the LLM server
 - `parser.authors` — list of Telegram author names whose messages are auto-parsed
-- `qa.default_window_days` — default look-back window for questions
+- `qa.max_tool_iterations` — max SQL tool calls per question before forcing a final answer
+- `qa.sql_row_cap` — max rows returned per SQL query
+- `qa.user_timezone` — timezone used when interpreting relative date expressions in questions
 
 ## Tests
 

@@ -17,14 +17,6 @@ def get_parser_llm_client() -> LLMClient:
     return _get_llm_client_for_task('parser')
 
 
-def get_router_llm_client() -> LLMClient:
-    return _get_llm_client_for_task('router')
-
-
-def get_narrative_qa_llm_client() -> LLMClient:
-    return _get_llm_client_for_task('narrative_qa')
-
-
 def get_agentic_qa_llm_client() -> LLMClient:
     return _get_llm_client_for_task('agentic_qa')
 
