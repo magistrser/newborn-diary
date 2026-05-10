@@ -3,6 +3,7 @@ from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel
+from pydantic import ValidationError
 
 
 class EventType(StrEnum):
@@ -180,3 +181,34 @@ class Event(BaseModel):
     parser_version: str | None = None
 
     model_config = {'from_attributes': True}
+
+
+PAYLOAD_MODEL_BY_TYPE: dict[EventType, type[BaseModel]] = {
+    EventType.sleep_start: SleepStartPayload,
+    EventType.sleep_end: SleepEndPayload,
+    EventType.sleep_interval: SleepIntervalPayload,
+    EventType.feed_breast: FeedBreastPayload,
+    EventType.feed_bottle: FeedBottlePayload,
+    EventType.pump: PumpPayload,
+    EventType.diaper: DiaperPayload,
+    EventType.weight: WeightPayload,
+    EventType.temperature: TemperaturePayload,
+    EventType.medication: MedicationPayload,
+    EventType.vaccination: VaccinationPayload,
+    EventType.doctor_visit: DoctorVisitPayload,
+    EventType.bath: BathPayload,
+    EventType.tummy_time: TummyTimePayload,
+    EventType.walk: WalkPayload,
+    EventType.spit_up: SpitUpPayload,
+    EventType.crying: CryingPayload,
+    EventType.gas: GasPayload,
+    EventType.father_calming: FatherCalmingPayload,
+    EventType.note: NotePayload,
+}
+
+
+def validate_payload_for_type(event_type: EventType, payload: dict) -> None:
+    try:
+        PAYLOAD_MODEL_BY_TYPE[event_type].model_validate(payload)
+    except ValidationError:
+        raise

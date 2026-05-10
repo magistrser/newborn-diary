@@ -8,9 +8,7 @@ import argparse
 import asyncio
 import logging
 import sys
-from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s %(message)s')
 
@@ -22,37 +20,14 @@ def _set_verbose() -> None:
 async def _run_import(export_path: Path, verbose: bool = False) -> None:
     if verbose:
         _set_verbose()
-    from contextlib import asynccontextmanager
-    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from infrastructure.composition import NewbornDiaryApplicationFactory
 
-    from application.services.event_parser import EventParser
-    from application.services.llm_client import LLMClient
-    from application.services.telegram_export_importer import TelegramExportImporter
-    from infrastructure.repositories.event_repository import SqlEventRepository
-    from settings import settings
-
-    concurrency = settings.parser.import_concurrency
-    engine = settings.postgres.create_engine(pool_size=concurrency)
-    session_maker = async_sessionmaker(engine, expire_on_commit=False)
-
-    @asynccontextmanager
-    async def repo_factory() -> AsyncIterator[Any]:
-        async with session_maker() as session:
-            try:
-                yield SqlEventRepository(session)
-                await session.commit()
-            except Exception:
-                await session.rollback()
-                raise
-
-    llm = LLMClient(settings.llm)
-    parser = EventParser(llm, settings.parser)
-    importer = TelegramExportImporter(parser, repo_factory, settings.parser)
+    importer = NewbornDiaryApplicationFactory.telegram_export_importer(
+        NewbornDiaryApplicationFactory.event_parser()
+    )
 
     logging.info('Importing %s …', export_path)
     result = await importer.import_file(export_path)
-
-    await engine.dispose()
 
     print(f'messages_seen:      {result.messages_seen}')
     print(f'events_created:     {result.events_created}')

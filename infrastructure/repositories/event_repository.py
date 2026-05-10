@@ -6,7 +6,6 @@ from sqlalchemy import delete as sa_delete, select, update as sa_update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from application.repositories.event_repository import AbstractEventRepository
 from domain.event import Event, EventType
 from infrastructure.models.event import EventModel
 
@@ -15,7 +14,7 @@ def _to_domain(row: EventModel) -> Event:
     return Event.model_validate(row)
 
 
-class SqlEventRepository(AbstractEventRepository):
+class SqlEventRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session

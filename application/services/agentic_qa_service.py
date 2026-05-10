@@ -1,24 +1,13 @@
 import json
 import logging
 import uuid
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from openai.types.chat import ChatCompletionMessage
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from application.services.llm_client import LLMClient
+from application.dto import AnswerResult, AssistantMessage, QAConfig
+from application.ports import LLMPort, SqlExecutorPort
 from application.services.schema_prompt import build_sql_system_prompt
-from application.services.sql_tool import SqlValidationError, _extract_uuid_ids, execute_select, validate_select
-from settings import QASettings
-
-
-@dataclass
-class AnswerResult:
-    answer: str
-    used_window: dict
-    sources: list[uuid.UUID]
+from application.services.sql_tool import SqlValidationError, extract_uuid_ids, validate_select
 
 
 logger = logging.getLogger(__name__)
@@ -46,7 +35,7 @@ _EXECUTE_SQL_TOOL = {
 }
 
 
-def _assistant_msg_to_dict(msg: ChatCompletionMessage) -> dict[str, Any]:
+def _assistant_msg_to_dict(msg: AssistantMessage) -> dict[str, Any]:
     d: dict = {'role': 'assistant', 'content': msg.content}
     if msg.tool_calls:
         d['tool_calls'] = [
@@ -54,8 +43,8 @@ def _assistant_msg_to_dict(msg: ChatCompletionMessage) -> dict[str, Any]:
                 'id': tc.id,
                 'type': 'function',
                 'function': {
-                    'name': tc.function.name,  # type: ignore[union-attr]
-                    'arguments': tc.function.arguments,  # type: ignore[union-attr]
+                    'name': tc.function.name,
+                    'arguments': tc.function.arguments,
                 },
             }
             for tc in msg.tool_calls
@@ -67,12 +56,12 @@ class AgenticQAService:
 
     def __init__(
         self,
-        llm: LLMClient,
-        session: AsyncSession,
-        qa_settings: QASettings,
+        llm: LLMPort,
+        sql_executor: SqlExecutorPort,
+        qa_settings: QAConfig,
     ) -> None:
         self._llm = llm
-        self._session = session
+        self._sql_executor = sql_executor
         self._settings = qa_settings
 
     async def _execute_tool_call(
@@ -82,7 +71,7 @@ class AgenticQAService:
         sources: list[uuid.UUID],
     ) -> dict:
         try:
-            args = json.loads(call.function.arguments)  # type: ignore[union-attr]
+            args = json.loads(call.function.arguments)
         except (json.JSONDecodeError, AttributeError):
             args = {}
         sql = args.get('query', '')
@@ -90,13 +79,12 @@ class AgenticQAService:
         logger.debug('Agentic SQL query:\n%s', sql)
         try:
             validate_select(sql)
-            result = await execute_select(
-                self._session,
+            result = await self._sql_executor.execute_select(
                 sql,
                 row_cap=self._settings.sql_row_cap,
                 statement_timeout_ms=self._settings.sql_statement_timeout_ms,
             )
-            sources.extend(_extract_uuid_ids(result))
+            sources.extend(extract_uuid_ids(result))
         except SqlValidationError as exc:
             result = {'error': f'rejected: {exc}'}
         logger.debug('SQL result: %s', result)

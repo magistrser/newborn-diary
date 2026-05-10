@@ -15,21 +15,13 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from application.repositories.event_repository import AbstractEventRepository
+from application.dto import ImportResult, ParserConfig
+from application.ports import EventRepositoryPort
 from application.services.event_parser import EventParser
-from settings import ParserSettings
 
 logger = logging.getLogger(__name__)
 
-RepoFactory = Callable[[], AbstractAsyncContextManager[AbstractEventRepository]]
-
-
-@dataclass
-class ImportResult:
-    messages_seen: int
-    events_created: int
-    skipped_duplicates: int
-    parse_failures: int
+RepoFactory = Callable[[], AbstractAsyncContextManager[EventRepositoryPort]]
 
 
 @dataclass
@@ -61,7 +53,7 @@ class TelegramExportImporter:
         self,
         parser: EventParser,
         repo_factory: RepoFactory,
-        parser_settings: ParserSettings,
+        parser_settings: ParserConfig,
     ) -> None:
         self._parser = parser
         self._repo_factory = repo_factory
@@ -73,7 +65,7 @@ class TelegramExportImporter:
 
     async def import_data(self, data: dict[str, Any]) -> ImportResult:
         messages = data.get('messages', [])
-        allowed_authors = set(self._settings.authors)
+        allowed_authors = set(self._settings.authors or [])
         chat_id = int(data.get('id', 0))
         tz = ZoneInfo(self._settings.timezone)
 

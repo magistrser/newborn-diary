@@ -132,17 +132,20 @@ newborn_diary/
 ├── domain/
 │   └── event.py          — Event aggregate + all payload Pydantic models + enums
 ├── application/
-│   ├── repositories/
-│   │   └── event_repository.py   — AbstractEventRepository (interface)
+│   ├── dto.py                    — use-case commands/results/config DTOs
+│   ├── ports.py                  — repository, LLM, SQL executor, transaction ports
+│   ├── use_cases.py              — event CRUD + parse-and-create orchestration
 │   └── services/
-│       ├── llm_client.py         — AsyncOpenAI wrapper (chat_json / chat_text / chat_with_tools)
 │       ├── event_parser.py       — LLM-based free-text → Event list
 │       ├── schema_prompt.py      — Generates the SQL system prompt dynamically from domain models
 │       ├── agentic_qa_service.py — Multi-turn LLM+tool loop for answering questions
-│       ├── sql_tool.py           — SQL validation (sqlglot AST) + execution helper
+│       ├── sql_tool.py           — deterministic SQL validation and source extraction
 │       └── telegram_export_importer.py — Bulk import from Telegram Desktop JSON
 ├── infrastructure/
 │   ├── endpoints/v1/     — FastAPI routers: events, ask, admin_import
+│   ├── composition.py     — composition root for app/use-case/client wiring
+│   ├── llm_client.py      — AsyncOpenAI adapter
+│   ├── sql_executor.py    — SQLAlchemy SELECT executor for the QA SQL tool
 │   ├── models/event.py   — SQLAlchemy ORM model
 │   ├── repositories/     — SqlEventRepository (concrete implementation)
 │   ├── migrations/       — Alembic migration scripts
@@ -156,7 +159,7 @@ newborn_diary/
 ### Layering rules
 
 - `domain/` has no imports from other local packages.
-- `application/` imports only from `domain/` and `settings`.
+- `application/` imports from `domain/`, defines ports, and must not import `infrastructure/`.
 - `infrastructure/` imports from `application/` and `domain/` (never the reverse).
 
 ---

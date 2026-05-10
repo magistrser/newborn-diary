@@ -1,30 +1,14 @@
 import json
 import logging
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
 
 from fastapi import File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from application.services.telegram_export_importer import TelegramExportImporter
-from infrastructure.dependencies.db_session import ASYNC_SESSION
+from infrastructure.composition import NewbornDiaryApplicationFactory
 from infrastructure.dependencies.llm import EventParserDep
 from infrastructure.endpoints.v1.router import router
-from infrastructure.repositories.event_repository import SqlEventRepository
-from settings import settings
 
 logger = logging.getLogger(__name__)
-
-
-@asynccontextmanager
-async def _repo_factory() -> AsyncGenerator[SqlEventRepository, None]:
-    async with ASYNC_SESSION() as session:
-        try:
-            yield SqlEventRepository(session)
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
 
 
 class ImportResponse(BaseModel):
@@ -49,7 +33,7 @@ async def import_telegram_export(
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=400, detail=f'Invalid JSON: {exc}') from exc
 
-    importer = TelegramExportImporter(parser, _repo_factory, settings.parser)
+    importer = NewbornDiaryApplicationFactory.telegram_export_importer(parser)
     result = await importer.import_data(data)
     return ImportResponse(
         messages_seen=result.messages_seen,

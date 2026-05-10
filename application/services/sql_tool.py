@@ -2,9 +2,6 @@ import uuid
 
 import sqlglot
 import sqlglot.expressions as exp
-from sqlalchemy import text
-from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class SqlValidationError(Exception):
@@ -95,7 +92,7 @@ def validate_select(sql: str) -> str:
     return sql
 
 
-def _extract_uuid_ids(result: dict) -> list[uuid.UUID]:
+def extract_uuid_ids(result: dict) -> list[uuid.UUID]:
     cols = result.get('columns', [])
     rows = result.get('rows', [])
     try:
@@ -111,30 +108,4 @@ def _extract_uuid_ids(result: dict) -> list[uuid.UUID]:
     return ids
 
 
-async def execute_select(
-    session: AsyncSession,
-    sql: str,
-    *,
-    row_cap: int,
-    statement_timeout_ms: int,
-) -> dict:
-    await session.execute(text(f"SET LOCAL statement_timeout = '{statement_timeout_ms}ms'"))
-    sp = await session.begin_nested()
-    columns: list[str] = []
-    rows: list[list] = []
-    truncated = False
-    error: str | None = None
-    try:
-        result = await session.execute(text(sql))
-        columns = list(result.keys())
-        all_rows = result.fetchmany(row_cap + 1)
-        truncated = len(all_rows) > row_cap
-        rows = [list(r) for r in all_rows[:row_cap]]
-    except DBAPIError as exc:
-        error = str(exc.orig)[:500]
-    finally:
-        await sp.rollback()
-
-    if error is not None:
-        return {'error': error}
-    return {'columns': columns, 'rows': rows, 'truncated': truncated}
+_extract_uuid_ids = extract_uuid_ids

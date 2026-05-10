@@ -6,13 +6,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from application.dto import QAConfig
 from application.services.agentic_qa_service import AgenticQAService
 from domain.event import Event, EventType
 from infrastructure.repositories.event_repository import SqlEventRepository
-from settings import QASettings
+from infrastructure.sql_executor import SqlAlchemySqlExecutor
 
 
-_DEFAULT_SETTINGS = QASettings(
+_DEFAULT_SETTINGS = QAConfig(
     max_tool_iterations=5,
     sql_row_cap=10,
     sql_statement_timeout_ms=3000,
@@ -64,7 +65,7 @@ async def test_happy_path_aggregate(db_session: AsyncSession) -> None:
         _text_msg('Было 1 подгузник.'),
     ])
 
-    service = AgenticQAService(llm, db_session, _DEFAULT_SETTINGS)
+    service = AgenticQAService(llm, SqlAlchemySqlExecutor(db_session), _DEFAULT_SETTINGS)
     result = await service.answer('сколько подгузников сегодня?')
 
     assert '1' in result.answer or 'подгузник' in result.answer
@@ -83,7 +84,7 @@ async def test_error_retry(db_session: AsyncSession) -> None:
         _text_msg('Ответ: 0 событий.'),
     ])
 
-    service = AgenticQAService(llm, db_session, _DEFAULT_SETTINGS)
+    service = AgenticQAService(llm, SqlAlchemySqlExecutor(db_session), _DEFAULT_SETTINGS)
     result = await service.answer('тест')
 
     assert result.used_window['iterations'] == 3
@@ -106,10 +107,10 @@ async def test_iteration_cap(db_session: AsyncSession) -> None:
     )
     llm.chat_text = AsyncMock(return_value='Не удалось ответить.')
 
-    settings = QASettings(max_tool_iterations=2, sql_row_cap=10,
-                          sql_statement_timeout_ms=3000,
-                          user_timezone='Europe/Moscow', agent_max_tokens=256)
-    service = AgenticQAService(llm, db_session, settings)
+    settings = QAConfig(max_tool_iterations=2, sql_row_cap=10,
+                        sql_statement_timeout_ms=3000,
+                        user_timezone='Europe/Moscow', agent_max_tokens=256)
+    service = AgenticQAService(llm, SqlAlchemySqlExecutor(db_session), settings)
     result = await service.answer('тест')
 
     assert llm.chat_with_tools.call_count == 2
@@ -128,7 +129,7 @@ async def test_sources_populated_from_id_column(db_session: AsyncSession) -> Non
         _text_msg('Вот события.'),
     ])
 
-    service = AgenticQAService(llm, db_session, _DEFAULT_SETTINGS)
+    service = AgenticQAService(llm, SqlAlchemySqlExecutor(db_session), _DEFAULT_SETTINGS)
     result = await service.answer('покажи подгузники')
 
     assert event.id in result.sources
@@ -148,7 +149,7 @@ async def test_sql_validation_rejection_returned_as_error(db_session: AsyncSessi
     llm = AsyncMock()
     llm.chat_with_tools = AsyncMock(side_effect=side_effect)
 
-    service = AgenticQAService(llm, db_session, _DEFAULT_SETTINGS)
+    service = AgenticQAService(llm, SqlAlchemySqlExecutor(db_session), _DEFAULT_SETTINGS)
     await service.answer('удали всё')
 
     second_call_messages = captured_messages[1]

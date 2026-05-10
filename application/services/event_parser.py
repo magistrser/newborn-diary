@@ -11,7 +11,8 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ValidationError
 
-from application.services.llm_client import LLMClient
+from application.dto import ParserConfig
+from application.ports import LLMPort
 from domain.event import (
     BottleContents,
     BreastSide,
@@ -23,7 +24,6 @@ from domain.event import (
     SpitUpVolume,
     TemperatureMethod,
 )
-from settings import ParserSettings
 
 
 _SYSTEM_PROMPT = """\
@@ -268,7 +268,7 @@ logger = logging.getLogger(__name__)
 
 class EventParser:
 
-    def __init__(self, llm: LLMClient, parser_settings: ParserSettings) -> None:
+    def __init__(self, llm: LLMPort, parser_settings: ParserConfig) -> None:
         self._llm = llm
         self._settings = parser_settings
         self._tz = ZoneInfo(parser_settings.timezone)
