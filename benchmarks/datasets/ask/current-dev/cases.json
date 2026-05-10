@@ -1,0 +1,250 @@
+[
+  {
+    "id": "total-events",
+    "category": "counts",
+    "question": "Сколько всего записей в дневнике?",
+    "expected": {
+      "total_events": 531
+    },
+    "checks": {
+      "numbers": [
+        531
+      ],
+      "sources": [],
+      "max_iterations": 5,
+      "requires_sql": true,
+      "query_contains_any": []
+    }
+  },
+  {
+    "id": "count-type-feed_breast",
+    "category": "counts",
+    "question": "Сколько раз кормили грудью за всё время?",
+    "expected": {
+      "type": "feed_breast",
+      "count": 130,
+      "unit": "sessions"
+    },
+    "checks": {
+      "numbers": [
+        130
+      ],
+      "sources": [],
+      "max_iterations": 5,
+      "requires_sql": true,
+      "query_contains_any": [
+        "feed_breast"
+      ]
+    }
+  },
+  {
+    "id": "count-day-2026-05-10",
+    "category": "daily",
+    "question": "Сколько записей было 10 мая 2026?",
+    "expected": {
+      "local_day": "2026-05-10",
+      "count": 58
+    },
+    "checks": {
+      "numbers": [
+        58
+      ],
+      "sources": [],
+      "max_iterations": 5,
+      "requires_sql": true,
+      "query_contains_any": [
+        "2026-05-10",
+        "AT TIME ZONE",
+        "+03"
+      ]
+    }
+  },
+  {
+    "id": "count-poo-diapers",
+    "category": "diapers",
+    "question": "Сколько раз был стул за всё время?",
+    "expected": {
+      "kinds": [
+        "poo",
+        "both"
+      ],
+      "count": 22
+    },
+    "checks": {
+      "numbers": [
+        22
+      ],
+      "sources": [],
+      "max_iterations": 5,
+      "requires_sql": true,
+      "query_contains_any": [
+        "diaper",
+        "poo",
+        "both"
+      ]
+    }
+  },
+  {
+    "id": "previous-week-most-poo-day",
+    "category": "diapers",
+    "question": "На прошлой неделе, с 27 апреля 2026 по 3 мая 2026, в какой день было больше всего стула и сколько раз?",
+    "expected": {
+      "local_day": "2026-04-30",
+      "count": 4,
+      "date_range": [
+        "2026-04-27",
+        "2026-05-03"
+      ]
+    },
+    "checks": {
+      "numbers": [
+        30,
+        4
+      ],
+      "sources": [],
+      "max_iterations": 5,
+      "requires_sql": true,
+      "query_contains_any": [
+        "2026-04-27",
+        "2026-05-03",
+        "diaper",
+        "poo",
+        "both"
+      ]
+    }
+  },
+  {
+    "id": "feeding-sessions-total",
+    "category": "feeding",
+    "question": "Сколько всего кормлений было, если грудь и бутылочку в пределах 30 минут считать одним кормлением?",
+    "expected": {
+      "feeding_sessions": 137
+    },
+    "checks": {
+      "numbers": [
+        137
+      ],
+      "sources": [],
+      "max_iterations": 5,
+      "requires_sql": true,
+      "query_contains_any": [
+        "feed_breast",
+        "feed_bottle",
+        "30"
+      ]
+    }
+  },
+  {
+    "id": "latest-type-feed_breast",
+    "category": "sources",
+    "question": "Когда в последний раз кормили грудью?",
+    "expected": {
+      "type": "feed_breast",
+      "source_id": "5f9cdf52-69bc-4c00-9ecc-8b7fc6c86060"
+    },
+    "checks": {
+      "numbers": [],
+      "sources": [
+        "5f9cdf52-69bc-4c00-9ecc-8b7fc6c86060"
+      ],
+      "max_iterations": 5,
+      "requires_sql": true,
+      "query_contains_any": [
+        "id",
+        "feed_breast"
+      ]
+    }
+  },
+  {
+    "id": "latest-three-events",
+    "category": "sources",
+    "question": "Покажи последние 3 события в дневнике.",
+    "expected": {
+      "source_ids": [
+        "e7933d5d-08ad-4b75-a72a-d255783b9bfd",
+        "913e2be0-0cd6-4006-803e-95fd932b920d",
+        "5f9cdf52-69bc-4c00-9ecc-8b7fc6c86060"
+      ]
+    },
+    "checks": {
+      "numbers": [],
+      "sources": [
+        "e7933d5d-08ad-4b75-a72a-d255783b9bfd",
+        "913e2be0-0cd6-4006-803e-95fd932b920d",
+        "5f9cdf52-69bc-4c00-9ecc-8b7fc6c86060"
+      ],
+      "max_iterations": 5,
+      "requires_sql": true,
+      "query_contains_any": [
+        "id",
+        "ORDER BY"
+      ]
+    }
+  },
+  {
+    "id": "sleep-end-duration-summary",
+    "category": "sleep",
+    "question": "Сколько раз малыш просыпался и сколько минут сна суммарно записано?",
+    "expected": {
+      "event_type": "sleep_end",
+      "intervals": 96,
+      "minutes": 4980
+    },
+    "checks": {
+      "numbers": [
+        96,
+        4980
+      ],
+      "sources": [],
+      "max_iterations": 5,
+      "requires_sql": true,
+      "query_contains_any": [
+        "sleep_end"
+      ]
+    }
+  },
+  {
+    "id": "average-sleep-minutes-per-day",
+    "category": "sleep_stats",
+    "question": "В среднем сколько минут сна в день получается по дням, где есть записи сна?",
+    "expected": {
+      "average_minutes": 383,
+      "days_with_sleep_data": 13
+    },
+    "checks": {
+      "numbers": [
+        383
+      ],
+      "sources": [],
+      "max_iterations": 5,
+      "requires_sql": true,
+      "query_contains_any": [
+        "sleep_end",
+        "duration_min",
+        "AVG"
+      ]
+    }
+  },
+  {
+    "id": "average-sleep-minutes-per-month",
+    "category": "sleep_stats",
+    "question": "В среднем сколько минут сна в месяц получается по месяцам, где есть записи сна?",
+    "expected": {
+      "average_minutes": 2490,
+      "months_with_sleep_data": 2
+    },
+    "checks": {
+      "numbers": [
+        2490
+      ],
+      "sources": [],
+      "max_iterations": 5,
+      "requires_sql": true,
+      "query_contains_any": [
+        "sleep_end",
+        "duration_min",
+        "AVG"
+      ]
+    }
+  }
+]

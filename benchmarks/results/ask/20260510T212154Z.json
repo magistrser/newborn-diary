@@ -1,0 +1,379 @@
+{
+  "run_id": "20260510T212154Z",
+  "dataset": "current-dev",
+  "notes": "initial pinned current-dev /ask benchmark after adding benchmark suite",
+  "port": 8011,
+  "settings": {
+    "environment": "BENCHMARK",
+    "db_name": "diary_benchmark",
+    "llm_model": "gemma-4-26b-a4b-it",
+    "llm_base_url": "http://192.168.2.243:41234/v1"
+  },
+  "git": {
+    "commit": "02f3cb5",
+    "status_short": "M settings.py\n M tests/settings_tests.py\n?? benchmarks/\n?? settings.benchmark.yml\n?? tests/ask_benchmark_tests.py",
+    "diff_stat": "settings.py             | 9 +++++++--\n tests/settings_tests.py | 9 +++++++++\n 2 files changed, 16 insertions(+), 2 deletions(-)"
+  },
+  "summary": {
+    "passed": 7,
+    "total": 8,
+    "pass_rate": 0.875,
+    "by_category": {
+      "counts": {
+        "passed": 2,
+        "total": 2
+      },
+      "daily": {
+        "passed": 1,
+        "total": 1
+      },
+      "diapers": {
+        "passed": 1,
+        "total": 1
+      },
+      "feeding": {
+        "passed": 1,
+        "total": 1
+      },
+      "sleep": {
+        "passed": 0,
+        "total": 1
+      },
+      "sources": {
+        "passed": 2,
+        "total": 2
+      }
+    }
+  },
+  "case_results": [
+    {
+      "case": {
+        "id": "total-events",
+        "category": "counts",
+        "question": "Сколько всего событий сохранено в дневнике?",
+        "expected": {
+          "total_events": 531
+        },
+        "checks": {
+          "numbers": [
+            531
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": []
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 1361,
+      "response": {
+        "answer": "В дневнике всего сохранено 531 событие.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT COUNT(*) AS total_events FROM events;"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "count-type-feed_breast",
+        "category": "counts",
+        "question": "Сколько всего событий типа feed_breast (кормление грудью) есть в дневнике?",
+        "expected": {
+          "type": "feed_breast",
+          "count": 160
+        },
+        "checks": {
+          "numbers": [
+            160
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "feed_breast"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 930,
+      "response": {
+        "answer": "В дневнике всего 160 событий типа кормление грудью.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT COUNT(*) FROM events WHERE type = 'feed_breast';"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "count-day-2026-05-10",
+        "category": "daily",
+        "question": "Сколько событий было за московскую дату 2026-05-10?",
+        "expected": {
+          "local_day": "2026-05-10",
+          "count": 58
+        },
+        "checks": {
+          "numbers": [
+            58
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "2026-05-10",
+            "AT TIME ZONE",
+            "+03"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 1246,
+      "response": {
+        "answer": "За московскую дату 2026-05-10 было зафиксировано 58 событий.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT COUNT(*) AS event_count FROM events WHERE DATE(occurred_at AT TIME ZONE 'Europe/Moscow') = '2026-05-10';"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "count-diaper-kind-unknown",
+        "category": "diapers",
+        "question": "Сколько подгузников с типом unknown (неизвестный тип) есть в дневнике?",
+        "expected": {
+          "kind": "unknown",
+          "count": 56
+        },
+        "checks": {
+          "numbers": [
+            56
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "diaper",
+            "unknown"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 1145,
+      "response": {
+        "answer": "В дневнике зафиксировано 56 подгузников с неизвестным типом.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT COUNT(*) FROM events WHERE type = 'diaper' AND payload->>'kind' = 'unknown';"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "feeding-sessions-total",
+        "category": "feeding",
+        "question": "Сколько всего кормлений было в дневнике, если события груди и бутылочки в пределах 30 минут считать одним кормлением?",
+        "expected": {
+          "feeding_sessions": 137
+        },
+        "checks": {
+          "numbers": [
+            137
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "feed_breast",
+            "feed_bottle",
+            "30"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 2151,
+      "response": {
+        "answer": "Всего в дневнике было зафиксировано 137 кормлений.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "WITH feedings AS (\n  SELECT occurred_at,\n         LAG(occurred_at) OVER (ORDER BY occurred_at) AS prev_at\n  FROM events\n  WHERE type IN ('feed_breast', 'feed_bottle')\n),\nsessions AS (\n  SELECT occurred_at,\n         SUM(CASE WHEN prev_at IS NULL OR occurred_at - prev_at > INTERVAL '30 minutes' THEN 1 ELSE 0 END)\n           OVER (ORDER BY occurred_at) AS session_id\n  FROM feedings\n)\nSELECT COUNT(DISTINCT session_id) AS feeding_count FROM sessions;"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "latest-type-feed_breast",
+        "category": "sources",
+        "question": "Покажи последнее событие типа feed_breast (кормление грудью) и укажи время.",
+        "expected": {
+          "type": "feed_breast",
+          "source_id": "5f9cdf52-69bc-4c00-9ecc-8b7fc6c86060"
+        },
+        "checks": {
+          "numbers": [],
+          "sources": [
+            "5f9cdf52-69bc-4c00-9ecc-8b7fc6c86060"
+          ],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "id",
+            "feed_breast"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 1989,
+      "response": {
+        "answer": "Последнее кормление грудью было зафиксировано 10 мая 2026 года в 21:34:58 по московскому времени (id: 5f9cdf52-69bc-4c00-9ecc-8b7fc6c86060).",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT id, occurred_at AT TIME ZONE 'Europe/Moscow' AS local_time FROM events WHERE type = 'feed_breast' ORDER BY occurred_at DESC LIMIT 1;"
+          ]
+        },
+        "sources": [
+          "5f9cdf52-69bc-4c00-9ecc-8b7fc6c86060"
+        ]
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "latest-three-events",
+        "category": "sources",
+        "question": "Покажи последние 3 события в дневнике.",
+        "expected": {
+          "source_ids": [
+            "e7933d5d-08ad-4b75-a72a-d255783b9bfd",
+            "913e2be0-0cd6-4006-803e-95fd932b920d",
+            "5f9cdf52-69bc-4c00-9ecc-8b7fc6c86060"
+          ]
+        },
+        "checks": {
+          "numbers": [],
+          "sources": [
+            "e7933d5d-08ad-4b75-a72a-d255783b9bfd",
+            "913e2be0-0cd6-4006-803e-95fd932b920d",
+            "5f9cdf52-69bc-4c00-9ecc-8b7fc6c86060"
+          ],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "id",
+            "ORDER BY"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 3231,
+      "response": {
+        "answer": "Вот последние 3 события из вашего дневника:\n\n1. Начало сна (id: e7933d5d-08ad-4b75-a72a-d255783b9bfd) — 10 мая 2026 в 21:59\n2. Кормление грудью, левая сторона (id: 5f9cdf52-69bc-4c00-9ecc-8b7fc6c86060) — 10 мая 2026 в 21:34\n3. Смена подгузника, тип не указан (id: 913e2be0-0cd6-4006-803e-95fd932b920d) — 10 мая 2026 в 21:34",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT id, occurred_at AT TIME ZONE 'Europe/Moscow' AS event_time, type, payload FROM events ORDER BY occurred_at DESC LIMIT 3;"
+          ]
+        },
+        "sources": [
+          "e7933d5d-08ad-4b75-a72a-d255783b9bfd",
+          "5f9cdf52-69bc-4c00-9ecc-8b7fc6c86060",
+          "913e2be0-0cd6-4006-803e-95fd932b920d"
+        ]
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "sleep-interval-summary",
+        "category": "sleep",
+        "question": "Сколько интервалов сна есть в дневнике и сколько минут сна они суммарно занимают?",
+        "expected": {
+          "intervals": 4,
+          "minutes": 166
+        },
+        "checks": {
+          "numbers": [
+            4,
+            166
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "sleep_interval"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 1637,
+      "response": {
+        "answer": "В дневнике зафиксировано 96 интервалов сна, которые в сумме составляют 4980 минут.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT COUNT(id) AS sleep_intervals_count, SUM((payload->>'duration_min')::INTEGER) AS total_sleep_minutes FROM events WHERE type = 'sleep_end';"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": false,
+        "failures": [
+          "answer does not contain expected number 166"
+        ]
+      }
+    }
+  ]
+}

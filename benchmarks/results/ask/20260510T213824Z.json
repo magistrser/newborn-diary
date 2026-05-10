@@ -1,0 +1,524 @@
+{
+  "run_id": "20260510T213824Z",
+  "dataset": "current-dev",
+  "notes": "treat natural breast-feeding count as sessions while keeping new stats cases",
+  "port": 8011,
+  "settings": {
+    "environment": "BENCHMARK",
+    "db_name": "diary_benchmark",
+    "llm_model": "gemma-4-26b-a4b-it",
+    "llm_base_url": "http://192.168.2.243:41234/v1"
+  },
+  "git": {
+    "commit": "02f3cb5",
+    "status_short": "M settings.py\n M tests/settings_tests.py\n?? benchmarks/\n?? settings.benchmark.yml\n?? tests/ask_benchmark_tests.py",
+    "diff_stat": "settings.py             | 9 +++++++--\n tests/settings_tests.py | 9 +++++++++\n 2 files changed, 16 insertions(+), 2 deletions(-)"
+  },
+  "summary": {
+    "passed": 7,
+    "total": 11,
+    "pass_rate": 0.6363636363636364,
+    "by_category": {
+      "counts": {
+        "passed": 2,
+        "total": 2
+      },
+      "daily": {
+        "passed": 1,
+        "total": 1
+      },
+      "diapers": {
+        "passed": 2,
+        "total": 2
+      },
+      "feeding": {
+        "passed": 1,
+        "total": 1
+      },
+      "sleep": {
+        "passed": 0,
+        "total": 1
+      },
+      "sleep_stats": {
+        "passed": 0,
+        "total": 2
+      },
+      "sources": {
+        "passed": 1,
+        "total": 2
+      }
+    }
+  },
+  "case_results": [
+    {
+      "case": {
+        "id": "total-events",
+        "category": "counts",
+        "question": "Сколько всего записей в дневнике?",
+        "expected": {
+          "total_events": 531
+        },
+        "checks": {
+          "numbers": [
+            531
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": []
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 1602,
+      "response": {
+        "answer": "В дневнике всего 531 запись.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT COUNT(*) FROM events;"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "count-type-feed_breast",
+        "category": "counts",
+        "question": "Сколько раз кормили грудью за всё время?",
+        "expected": {
+          "type": "feed_breast",
+          "count": 130,
+          "unit": "sessions"
+        },
+        "checks": {
+          "numbers": [
+            130
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "feed_breast"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 2042,
+      "response": {
+        "answer": "За всё время ребенка кормили грудью 130 раз.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "WITH feedings AS (\n  SELECT occurred_at,\n         LAG(occurred_at) OVER (ORDER BY occurred_at) AS prev_at\n  FROM events\n  WHERE type = 'feed_breast'\n),\nsessions AS (\n  SELECT occurred_at,\n         SUM(CASE WHEN prev_at IS NULL OR occurred_at - prev_at > INTERVAL '30 minutes' THEN 1 ELSE 0 END)\n           OVER (ORDER BY occurred_at) AS session_id\n  FROM feedings\n)\nSELECT COUNT(DISTINCT session_id) AS feeding_count FROM sessions;"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "count-day-2026-05-10",
+        "category": "daily",
+        "question": "Сколько записей было 10 мая 2026?",
+        "expected": {
+          "local_day": "2026-05-10",
+          "count": 58
+        },
+        "checks": {
+          "numbers": [
+            58
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "2026-05-10",
+            "AT TIME ZONE",
+            "+03"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 1329,
+      "response": {
+        "answer": "За 10 мая 2026 года было сделано 58 записей.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT COUNT(*) FROM events WHERE DATE(occurred_at AT TIME ZONE 'Europe/Moscow') = '2026-05-10';"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "count-poo-diapers",
+        "category": "diapers",
+        "question": "Сколько раз был стул за всё время?",
+        "expected": {
+          "kinds": [
+            "poo",
+            "both"
+          ],
+          "count": 22
+        },
+        "checks": {
+          "numbers": [
+            22
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "diaper",
+            "poo",
+            "both"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 1398,
+      "response": {
+        "answer": "За всё время было зафиксировано 22 случая стула.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT COUNT(*) FROM events WHERE type = 'diaper' AND (payload->>'kind' = 'poo' OR payload->>'kind' = 'both');"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "previous-week-most-poo-day",
+        "category": "diapers",
+        "question": "На прошлой неделе, с 27 апреля 2026 по 3 мая 2026, в какой день было больше всего стула и сколько раз?",
+        "expected": {
+          "local_day": "2026-04-30",
+          "count": 4,
+          "date_range": [
+            "2026-04-27",
+            "2026-05-03"
+          ]
+        },
+        "checks": {
+          "numbers": [
+            30,
+            4
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "2026-04-27",
+            "2026-05-03",
+            "diaper",
+            "poo",
+            "both"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 2076,
+      "response": {
+        "answer": "На прошлой неделе больше всего стула было 30 апреля 2026 года — зафиксировано 4 случая.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT\n    DATE(occurred_at AT TIME ZONE 'Europe/Moscow') AS day,\n    COUNT(*) AS diaper_count\nFROM events\nWHERE type = 'diaper'\n  AND payload->>'kind' IN ('poo', 'both')\n  AND occurred_at >= '2026-04-27 00:00:00+03'\n  AND occurred_at < '2026-05-04 00:00:00+03'\nGROUP BY day\nORDER BY diaper_count DESC\nLIMIT 1;"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "feeding-sessions-total",
+        "category": "feeding",
+        "question": "Сколько всего кормлений было, если грудь и бутылочку в пределах 30 минут считать одним кормлением?",
+        "expected": {
+          "feeding_sessions": 137
+        },
+        "checks": {
+          "numbers": [
+            137
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "feed_breast",
+            "feed_bottle",
+            "30"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 1902,
+      "response": {
+        "answer": "Всего было 137 кормлений.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "WITH feedings AS (\n  SELECT occurred_at,\n         LAG(occurred_at) OVER (ORDER BY occurred_at) AS prev_at\n  FROM events\n  WHERE type IN ('feed_breast', 'feed_bottle')\n),\nsessions AS (\n  SELECT occurred_at,\n         SUM(CASE WHEN prev_at IS NULL OR occurred_at - prev_at > INTERVAL '30 minutes' THEN 1 ELSE 0 END)\n           OVER (ORDER BY occurred_at) AS session_id\n  FROM feedings\n)\nSELECT COUNT(DISTINCT session_id) AS feeding_count FROM sessions;"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "latest-type-feed_breast",
+        "category": "sources",
+        "question": "Когда в последний раз кормили грудью?",
+        "expected": {
+          "type": "feed_breast",
+          "source_id": "5f9cdf52-69bc-4c00-9ecc-8b7fc6c86060"
+        },
+        "checks": {
+          "numbers": [],
+          "sources": [
+            "5f9cdf52-69bc-4c00-9ecc-8b7fc6c86060"
+          ],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "id",
+            "feed_breast"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 1583,
+      "response": {
+        "answer": "Последнее кормление грудью было сегодня, 10 мая 2026 года, в 21:34 по московскому времени. Кормление проходило с левой стороны.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT occurred_at AT TIME ZONE 'Europe/Moscow' AS feeding_time, payload->>'side' AS side, (payload->>'duration_min')::INTEGER AS duration_min FROM events WHERE type = 'feed_breast' ORDER BY occurred_at DESC LIMIT 1;"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": false,
+        "failures": [
+          "missing expected source 5f9cdf52-69bc-4c00-9ecc-8b7fc6c86060"
+        ]
+      }
+    },
+    {
+      "case": {
+        "id": "latest-three-events",
+        "category": "sources",
+        "question": "Покажи последние 3 события в дневнике.",
+        "expected": {
+          "source_ids": [
+            "e7933d5d-08ad-4b75-a72a-d255783b9bfd",
+            "913e2be0-0cd6-4006-803e-95fd932b920d",
+            "5f9cdf52-69bc-4c00-9ecc-8b7fc6c86060"
+          ]
+        },
+        "checks": {
+          "numbers": [],
+          "sources": [
+            "e7933d5d-08ad-4b75-a72a-d255783b9bfd",
+            "913e2be0-0cd6-4006-803e-95fd932b920d",
+            "5f9cdf52-69bc-4c00-9ecc-8b7fc6c86060"
+          ],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "id",
+            "ORDER BY"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 5808,
+      "response": {
+        "answer": "Вот последние 3 события из дневника:\n\n1. Начало сна (id: e7933d5d-08ad-4b75-a72a-d255783b9bfd) в 21:59:41 по московскому времени.\n2. Кормление грудью с левой стороны (id: 5f9cdf52-69bc-4c00-9ecc-8b7fc6c86060) в 21:34:58 по московскому времени.\n3. Смена подгузника (id: 913e2be0-0cd6-4006-803e-95fd932b920d) в 21:34:58 по московскому времени.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT id, occurred_at AT TIME ZONE 'Europe/Moscow' AS event_time, type, payload, raw_text FROM events ORDER BY occurred_at DESC LIMIT 3;"
+          ]
+        },
+        "sources": [
+          "e7933d5d-08ad-4b75-a72a-d255783b9bfd",
+          "5f9cdf52-69bc-4c00-9ecc-8b7fc6c86060",
+          "913e2be0-0cd6-4006-803e-95fd932b920d"
+        ]
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "sleep-end-duration-summary",
+        "category": "sleep",
+        "question": "Сколько раз малыш просыпался и сколько минут сна суммарно записано?",
+        "expected": {
+          "event_type": "sleep_end",
+          "intervals": 96,
+          "minutes": 4980
+        },
+        "checks": {
+          "numbers": [
+            96,
+            4980
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "sleep_end"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 2727,
+      "response": {
+        "answer": "Малыш просыпался 96 раз, а суммарная продолжительность сна составила 5183 минуты.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT \n    COUNT(id) FILTER (WHERE type = 'sleep_end') AS wake_up_count,\n    SUM((payload->>'duration_min')::INTEGER) AS total_sleep_minutes\nFROM events;"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": false,
+        "failures": [
+          "answer does not contain expected number 4980"
+        ]
+      }
+    },
+    {
+      "case": {
+        "id": "average-sleep-minutes-per-day",
+        "category": "sleep_stats",
+        "question": "В среднем сколько минут сна в день получается по дням, где есть записи сна?",
+        "expected": {
+          "average_minutes": 383,
+          "days_with_sleep_data": 13
+        },
+        "checks": {
+          "numbers": [
+            383
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "sleep_end",
+            "duration_min",
+            "AVG"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 1807,
+      "response": {
+        "answer": "В среднем получается около 341 минуты сна в день (это примерно 5 часов 41 минута). Этот расчет сделан на основе дней, в которые были сделаны записи о завершении сна.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT \n    DATE(occurred_at AT TIME ZONE 'Europe/Moscow') AS sleep_day,\n    SUM((payload->>'duration_min')::INTEGER) AS total_sleep_minutes\nFROM events\nWHERE type = 'sleep_end'\nGROUP BY DATE(occurred_at AT TIME ZONE 'Europe/Moscow')\nORDER BY sleep_day;"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": false,
+        "failures": [
+          "answer does not contain expected number 383"
+        ]
+      }
+    },
+    {
+      "case": {
+        "id": "average-sleep-minutes-per-month",
+        "category": "sleep_stats",
+        "question": "В среднем сколько минут сна в месяц получается по месяцам, где есть записи сна?",
+        "expected": {
+          "average_minutes": 2490,
+          "months_with_sleep_data": 2
+        },
+        "checks": {
+          "numbers": [
+            2490
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "sleep_end",
+            "duration_min",
+            "AVG"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 2347,
+      "response": {
+        "answer": "<|channel>thought\n\nle_sql\nВ апреле 2026 года средняя продолжительность одного сна составляла 82 минуты, а в мае 2026 года — примерно 88.5 минут.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 3,
+          "queries": [
+            "SELECT \n    DATE_TRUNC('month', occurred_at AT TIME ZONE 'Europe/Moscow') AS month,\n    AVG(duration_min) AS avg_sleep_minutes\nFROM events\nWHERE type = 'sleep_end'\nGROUP BY 1\nORDER BY 1;",
+            "SELECT \n    DATE_TRUNC('month', occurred_at AT TIME ZONE 'Europe/Moscow') AS month,\n    AVG((payload->>'duration_min')::INTEGER) AS avg_sleep_minutes\nFROM events\nWHERE type = 'sleep_end'\nGROUP BY 1\nORDER BY 1;"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": false,
+        "failures": [
+          "answer does not contain expected number 2490"
+        ]
+      }
+    }
+  ]
+}

@@ -76,15 +76,16 @@ class Settings(BaseModel):
     verbose: bool = Field(default=False)
 
 
-def get_settings() -> Settings:
+def load_settings(environment: str | None = None) -> Settings:
     root_dir = Path(__file__).parent
-    environment = environ.get('ENVIRONMENT')
 
     match environment:
         case 'DEVELOPMENT' | None:
             settings_path = root_dir / 'settings.dev.yml'
         case 'TEST':
             settings_path = root_dir / 'settings.test.yml'
+        case 'BENCHMARK':
+            settings_path = root_dir / 'settings.benchmark.yml'
         case 'PRODUCTION':
             settings_path = root_dir / 'settings.yml'
         case invalid:
@@ -92,6 +93,10 @@ def get_settings() -> Settings:
 
     with open(settings_path, 'r', encoding='utf-8') as settings_file:
         return Settings.model_validate(safe_load(settings_file))
+
+
+def get_settings() -> Settings:
+    return load_settings(environ.get('ENVIRONMENT'))
 
 
 settings = get_settings()

@@ -151,3 +151,12 @@ def test_settings_example_matches_settings_schema() -> None:
         assert set(task).issubset(LLMTaskSettings.model_fields)
 
     Settings.model_validate(raw)
+
+
+def test_benchmark_settings_target_benchmark_database() -> None:
+    from settings import load_settings
+
+    benchmark_settings = load_settings('BENCHMARK')
+
+    assert benchmark_settings.postgres.db_name == 'diary_benchmark'
+    Settings.model_validate(benchmark_settings.model_dump())
