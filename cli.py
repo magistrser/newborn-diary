@@ -8,7 +8,9 @@ import argparse
 import asyncio
 import logging
 import sys
+from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s %(message)s')
 
@@ -34,7 +36,7 @@ async def _run_import(export_path: Path, verbose: bool = False) -> None:
     session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
     @asynccontextmanager
-    async def repo_factory():
+    async def repo_factory() -> AsyncIterator[Any]:
         async with session_maker() as session:
             try:
                 yield SqlEventRepository(session)

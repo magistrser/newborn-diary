@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.event import Event, EventType
 from infrastructure.repositories.event_repository import SqlEventRepository
@@ -9,8 +11,8 @@ from infrastructure.repositories.event_repository import SqlEventRepository
 from .lib.fixtures import db_session  # noqa: F401
 
 
-def _make_event(**kwargs) -> Event:
-    defaults = dict(
+def _make_event(**kwargs: Any) -> Event:
+    defaults: dict[str, Any] = dict(
         id=uuid.uuid4(),
         occurred_at=datetime(2026, 5, 10, 10, 0, 0, tzinfo=timezone.utc),
         recorded_at=datetime(2026, 5, 10, 10, 0, 0, tzinfo=timezone.utc),
@@ -22,7 +24,7 @@ def _make_event(**kwargs) -> Event:
     return Event(**defaults)
 
 
-async def test_update_occurred_at(db_session):
+async def test_update_occurred_at(db_session: AsyncSession) -> None:
     repo = SqlEventRepository(db_session)
     event = await repo.save(_make_event())
 
@@ -35,7 +37,7 @@ async def test_update_occurred_at(db_session):
     assert updated.type == EventType.sleep_start
 
 
-async def test_update_type_and_payload(db_session):
+async def test_update_type_and_payload(db_session: AsyncSession) -> None:
     repo = SqlEventRepository(db_session)
     event = await repo.save(_make_event())
 
@@ -50,13 +52,13 @@ async def test_update_type_and_payload(db_session):
     assert updated.payload == {'kind': 'pee'}
 
 
-async def test_update_nonexistent_returns_none(db_session):
+async def test_update_nonexistent_returns_none(db_session: AsyncSession) -> None:
     repo = SqlEventRepository(db_session)
     result = await repo.update(uuid.uuid4(), occurred_at=datetime.now(timezone.utc))
     assert result is None
 
 
-async def test_update_no_fields_returns_event(db_session):
+async def test_update_no_fields_returns_event(db_session: AsyncSession) -> None:
     repo = SqlEventRepository(db_session)
     event = await repo.save(_make_event())
     result = await repo.update(event.id)
@@ -64,7 +66,7 @@ async def test_update_no_fields_returns_event(db_session):
     assert result.id == event.id
 
 
-async def test_delete_existing(db_session):
+async def test_delete_existing(db_session: AsyncSession) -> None:
     repo = SqlEventRepository(db_session)
     event = await repo.save(_make_event())
 
@@ -75,7 +77,7 @@ async def test_delete_existing(db_session):
     assert fetched is None
 
 
-async def test_delete_nonexistent(db_session):
+async def test_delete_nonexistent(db_session: AsyncSession) -> None:
     repo = SqlEventRepository(db_session)
     deleted = await repo.delete(uuid.uuid4())
     assert deleted is False

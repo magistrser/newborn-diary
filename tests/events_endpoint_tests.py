@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi.testclient import TestClient
 
 from .lib.fixtures import application_client  # noqa: F401
@@ -45,7 +47,7 @@ async def test_create_sleep_start(application_client: TestClient) -> None:
     assert resp.json()['type'] == 'sleep_start'
 
 
-def _create_event(client: TestClient, **overrides) -> dict:
+def _create_event(client: TestClient, **overrides: Any) -> dict[str, Any]:
     body = {
         'type': 'sleep_start',
         'occurred_at': '2026-05-10T08:00:00Z',

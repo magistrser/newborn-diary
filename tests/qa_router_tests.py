@@ -11,7 +11,7 @@ def _make_result(answer: str = 'ok') -> AnswerResult:
     return AnswerResult(answer=answer, used_window={}, sources=[])
 
 
-async def test_routes_stats_to_agentic():
+async def test_routes_stats_to_agentic() -> None:
     llm = AsyncMock()
     llm.chat_json = AsyncMock(return_value={'mode': 'stats'})
 
@@ -27,7 +27,7 @@ async def test_routes_stats_to_agentic():
     assert result.used_window.get('route') == 'stats'
 
 
-async def test_routes_narrative_to_qa_service():
+async def test_routes_narrative_to_qa_service() -> None:
     llm = AsyncMock()
     llm.chat_json = AsyncMock(return_value={'mode': 'narrative'})
 
@@ -43,7 +43,7 @@ async def test_routes_narrative_to_qa_service():
     assert result.used_window.get('route') == 'narrative'
 
 
-async def test_unknown_mode_falls_back_to_narrative():
+async def test_unknown_mode_falls_back_to_narrative() -> None:
     llm = AsyncMock()
     llm.chat_json = AsyncMock(return_value={'mode': 'unknown_value'})
 
@@ -58,7 +58,7 @@ async def test_unknown_mode_falls_back_to_narrative():
     agentic.answer.assert_not_called()
 
 
-async def test_classifier_error_falls_back_to_narrative():
+async def test_classifier_error_falls_back_to_narrative() -> None:
     llm = AsyncMock()
     llm.chat_json = AsyncMock(side_effect=Exception('LLM error'))
 

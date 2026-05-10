@@ -1,9 +1,11 @@
 import json
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from application.services.agentic_qa_service import AgenticQAService
 from domain.event import Event, EventType
@@ -22,8 +24,8 @@ _DEFAULT_SETTINGS = QASettings(
 )
 
 
-def _make_event(**kwargs) -> Event:
-    defaults = dict(
+def _make_event(**kwargs: Any) -> Event:
+    defaults: dict[str, Any] = dict(
         id=uuid.uuid4(),
         occurred_at=datetime(2026, 5, 10, 10, 0, 0, tzinfo=timezone.utc),
         recorded_at=datetime(2026, 5, 10, 10, 0, 0, tzinfo=timezone.utc),
@@ -53,7 +55,7 @@ def _text_msg(content: str) -> MagicMock:
     return msg
 
 
-async def test_happy_path_aggregate(db_session):
+async def test_happy_path_aggregate(db_session: AsyncSession) -> None:
     """LLM issues one SQL call then returns a text answer."""
     repo = SqlEventRepository(db_session)
     event_id = uuid.uuid4()
@@ -75,7 +77,7 @@ async def test_happy_path_aggregate(db_session):
     assert result.sources == []
 
 
-async def test_error_retry(db_session):
+async def test_error_retry(db_session: AsyncSession) -> None:
     """LLM issues bad SQL, gets error back, fixes it, then answers."""
     llm = AsyncMock()
     llm.chat_with_tools = AsyncMock(side_effect=[
@@ -99,7 +101,7 @@ async def test_error_retry(db_session):
     assert 'error' in content
 
 
-async def test_iteration_cap(db_session):
+async def test_iteration_cap(db_session: AsyncSession) -> None:
     """When LLM keeps calling tools, service forces a text answer."""
     llm = AsyncMock()
     llm.chat_with_tools = AsyncMock(
@@ -118,7 +120,7 @@ async def test_iteration_cap(db_session):
     assert result.used_window['iterations'] == 2
 
 
-async def test_sources_populated_from_id_column(db_session):
+async def test_sources_populated_from_id_column(db_session: AsyncSession) -> None:
     """When LLM SELECTs id column, those UUIDs appear in sources."""
     repo = SqlEventRepository(db_session)
     event = await repo.save(_make_event())
@@ -136,12 +138,12 @@ async def test_sources_populated_from_id_column(db_session):
     assert event.id in result.sources
 
 
-async def test_sql_validation_rejection_returned_as_error(db_session):
+async def test_sql_validation_rejection_returned_as_error(db_session: AsyncSession) -> None:
     """A query rejected by the validator is returned as {error: ...} to LLM."""
     rejected_sql = "DELETE FROM events"
-    captured_messages: list[list[dict]] = []
+    captured_messages: list[list[dict[str, Any]]] = []
 
-    async def side_effect(messages, tools, **kwargs):
+    async def side_effect(messages: list[dict[str, Any]], tools: list[Any], **kwargs: Any) -> MagicMock:
         captured_messages.append(list(messages))
         if len(captured_messages) == 1:
             return _tool_call_msg(rejected_sql)
