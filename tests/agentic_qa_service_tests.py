@@ -2,17 +2,14 @@ import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from application.services.agentic_qa_service import AgenticQAService
 from domain.event import Event, EventType
 from infrastructure.repositories.event_repository import SqlEventRepository
 from settings import QASettings
-
-from .lib.fixtures import db_session  # noqa: F401
 
 
 _DEFAULT_SETTINGS = QASettings(
@@ -142,7 +139,7 @@ async def test_sql_validation_rejection_returned_as_error(db_session: AsyncSessi
     rejected_sql = "DELETE FROM events"
     captured_messages: list[list[dict[str, Any]]] = []
 
-    async def side_effect(messages: list[dict[str, Any]], tools: list[Any], **kwargs: Any) -> MagicMock:
+    async def side_effect(messages: list[dict[str, Any]], _tools: list[Any], **_kwargs: Any) -> MagicMock:
         captured_messages.append(list(messages))
         if len(captured_messages) == 1:
             return _tool_call_msg(rejected_sql)

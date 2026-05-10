@@ -2,9 +2,6 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from .lib.fixtures import application_client  # noqa: F401
-
-
 async def test_create_and_list_event(application_client: TestClient) -> None:
     payload = {
         'type': 'feed_breast',

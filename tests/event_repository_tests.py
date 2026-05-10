@@ -2,13 +2,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.event import Event, EventType
 from infrastructure.repositories.event_repository import SqlEventRepository
-
-from .lib.fixtures import db_session  # noqa: F401
 
 
 def _make_event(**kwargs: Any) -> Event:

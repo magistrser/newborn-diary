@@ -1,13 +1,10 @@
-from unittest.mock import AsyncMock, MagicMock
-
-import pytest
+from unittest.mock import AsyncMock
 
 from application.services.qa_router import QARouter
 from application.services.qa_service import AnswerResult
 
 
 def _make_result(answer: str = 'ok') -> AnswerResult:
-    import uuid
     return AnswerResult(answer=answer, used_window={}, sources=[])
 
 
