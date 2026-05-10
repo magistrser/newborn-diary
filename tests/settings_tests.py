@@ -1,7 +1,10 @@
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
+from yaml import safe_load
 
-from settings import LLMSettings, LLMTaskSettings
+from settings import LLMSettings, LLMTaskSettings, ParserSettings, PostgresSettings, QASettings, Settings
 
 
 _BASE = LLMSettings(
@@ -131,3 +134,20 @@ def test_llm_settings_tasks_validated_as_task_settings() -> None:
     )
     assert isinstance(s.tasks['t'], LLMTaskSettings)
     assert s.tasks['t'].model == 'override-model'
+
+
+def test_settings_example_matches_settings_schema() -> None:
+    example_path = Path(__file__).parents[1] / 'settings.yml.example'
+    raw = safe_load(example_path.read_text(encoding='utf-8'))
+
+    assert set(raw) == set(Settings.model_fields)
+    assert set(raw['postgres']) == set(PostgresSettings.model_fields)
+    assert set(raw['llm']) == set(LLMSettings.model_fields)
+    assert set(raw['parser']) == set(ParserSettings.model_fields)
+    assert set(raw['qa']) == set(QASettings.model_fields)
+    assert set(raw['llm']['tasks']) == {'parser', 'agentic_qa'}
+
+    for task in raw['llm']['tasks'].values():
+        assert set(task).issubset(LLMTaskSettings.model_fields)
+
+    Settings.model_validate(raw)
