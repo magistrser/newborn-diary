@@ -69,7 +69,10 @@ def main() -> None:
         help='Import Telegram Desktop JSON chat export',
     )
     import_parser.add_argument('path', type=Path, help='Path to the export JSON file')
-    import_parser.add_argument('--verbose', '-v', action='store_true', help='Print LLM prompts, responses, and saved events')
+    import_parser.add_argument(
+        '--verbose', '-v', action='store_true',
+        help='Print LLM prompts, responses, and saved events',
+    )
 
     args = parser.parse_args()
 

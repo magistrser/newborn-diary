@@ -36,14 +36,14 @@ _SYSTEM_PROMPT = """\
 | type | поля payload | когда использовать |
 |---|---|---|
 | sleep_start | {} | ребёнок заснул («Заснул», «Спит», «Уснул») |
-| sleep_end | duration_min?: int | ребёнок проснулся («Проснулся», «Встал»). Если в скобках указано время сна — запиши в duration_min |
-| sleep_interval | started_at: ISO8601, ended_at: ISO8601 | известен весь промежуток сна («спал на прогулке полтора часа», «спал с 13:00 до 15:30») |
+| sleep_end | duration_min?: int | ребёнок проснулся («Проснулся», «Встал»). Если в скобках указано время сна — запиши в duration_min |  # noqa: E501
+| sleep_interval | started_at: ISO8601, ended_at: ISO8601 | известен весь промежуток сна («спал на прогулке полтора часа», «спал с 13:00 до 15:30») |  # noqa: E501
 
 ### Кормление
 | type | поля payload | когда использовать |
 |---|---|---|
 | feed_breast | side: "left"/"right", duration_min?: int | кормление грудью. «Левая»→left, «Правая»→right |
-| feed_bottle | volume_ml?: int, contents: "formula"/"expressed" | кормление из бутылочки. «Смесь», «Бутылочка», «Сцеженное» |
+| feed_bottle | volume_ml?: int, contents: "formula"/"expressed" | кормление из бутылочки. «Смесь», «Бутылочка», «Сцеженное» |  # noqa: E501
 | pump | volume_ml?: int, duration_min?: int | сцеживание («Сцедила», «Помпа», «Насос») |
 
 ### Подгузник
@@ -55,7 +55,7 @@ _SYSTEM_PROMPT = """\
 | type | поля payload | когда использовать |
 |---|---|---|
 | weight | grams: int | взвешивание («Вес 4200г», «Взвесили — 4.2 кг» → 4200) |
-| temperature | celsius: float, method: "rectal"/"axillary"/"forehead" | температура («Температура 37.2», «Термометр 38.1°») |
+| temperature | celsius: float, method: "rectal"/"axillary"/"forehead" | температура («Температура 37.2», «Термометр 38.1°») |  # noqa: E501
 | medication | name: str, dose_ml?: float | лекарство/витамины («Витамин Д», «Д-дроп», «Бифидумбактерин») |
 | vaccination | vaccine: str | прививка («Прививка от полиомиелита», «БЦЖ») |
 | doctor_visit | type: "routine"/"sick", notes?: str | визит к врачу |
@@ -65,7 +65,7 @@ _SYSTEM_PROMPT = """\
 |---|---|---|
 | bath | duration_min?: int | купание («Купали», «Ванна») |
 | tummy_time | duration_min?: int | время на животике («На животике», «Лежал на животе») |
-| walk | duration_min?: int | прогулка («Гуляли», «Прогулка»). НЕ создавай walk если в сообщении речь только о сне на прогулке — там используй sleep_interval |
+| walk | duration_min?: int | прогулка («Гуляли», «Прогулка»). НЕ создавай walk если в сообщении речь только о сне на прогулке — там используй sleep_interval |  # noqa: E501
 
 ### Симптомы
 | type | поля payload | когда использовать |

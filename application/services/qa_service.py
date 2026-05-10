@@ -25,7 +25,7 @@ _INTENT_SYSTEM = """\
 Верни ТОЛЬКО JSON:
 {
   "window_days": <int>,
-  "types": [<список типов из: sleep_start, sleep_end, sleep_interval, feed_breast, feed_bottle, pump, diaper, weight, temperature, medication, vaccination, doctor_visit, bath, tummy_time, walk, spit_up, crying, gas, father_calming, note> или пустой список для всех],
+  "types": [<список типов из: sleep_start, sleep_end, sleep_interval, feed_breast, feed_bottle, pump, diaper, weight, temperature, medication, vaccination, doctor_visit, bath, tummy_time, walk, spit_up, crying, gas, father_calming, note> или пустой список для всех],  # noqa: E501
   "reason": "<краткое пояснение>"
 }
 

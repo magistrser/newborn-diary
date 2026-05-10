@@ -124,11 +124,10 @@ async def test_sources_populated_from_id_column(db_session: AsyncSession) -> Non
     """When LLM SELECTs id column, those UUIDs appear in sources."""
     repo = SqlEventRepository(db_session)
     event = await repo.save(_make_event())
-    event_id = str(event.id)
 
     llm = AsyncMock()
     llm.chat_with_tools = AsyncMock(side_effect=[
-        _tool_call_msg(f"SELECT id, occurred_at FROM events WHERE type='diaper'"),
+        _tool_call_msg(f"SELECT id, occurred_at FROM events WHERE id = '{event.id}'"),
         _text_msg('Вот события.'),
     ])
 

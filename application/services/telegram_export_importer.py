@@ -7,7 +7,7 @@ are silently skipped via the uq_events_source unique constraint.
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
