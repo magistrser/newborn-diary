@@ -1,5 +1,6 @@
 import json
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import File, HTTPException, UploadFile
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def _repo_factory():
+async def _repo_factory() -> AsyncGenerator[SqlEventRepository, None]:
     async with ASYNC_SESSION() as session:
         try:
             yield SqlEventRepository(session)

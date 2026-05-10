@@ -3,6 +3,7 @@ import re
 from typing import Any
 
 from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletionMessage
 
 from settings import LLMSettings
 
@@ -25,12 +26,12 @@ class LLMClient:
 
     async def chat_json(
         self,
-        messages: list[dict],
+        messages: list[dict[str, Any]],
         max_tokens: int | None = None,
     ) -> Any:
         response = await self._client.chat.completions.create(
             model=self._settings.model,
-            messages=messages,
+            messages=messages,  # type: ignore[arg-type]
             max_tokens=max_tokens or self._settings.parser_max_tokens,
             temperature=0.1,
         )
@@ -39,13 +40,33 @@ class LLMClient:
 
     async def chat_text(
         self,
-        messages: list[dict],
+        messages: list[dict[str, Any]],
         max_tokens: int | None = None,
     ) -> str:
         response = await self._client.chat.completions.create(
             model=self._settings.model,
-            messages=messages,
+            messages=messages,  # type: ignore[arg-type]
             max_tokens=max_tokens or self._settings.qa_max_tokens,
             temperature=0.3,
         )
         return _strip_thinking(response.choices[0].message.content or '')
+
+    async def chat_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        max_tokens: int | None = None,
+    ) -> ChatCompletionMessage:
+        response = await self._client.chat.completions.create(  # type: ignore[call-overload]
+            model=self._settings.model,
+            messages=messages,  # type: ignore[arg-type]
+            tools=tools,  # type: ignore[arg-type]
+            tool_choice='auto',
+            max_tokens=max_tokens or self._settings.qa_max_tokens,
+            temperature=0.2,
+        )
+        msg = response.choices[0].message
+        if msg.content:
+            msg.content = _strip_thinking(msg.content)
+        return msg

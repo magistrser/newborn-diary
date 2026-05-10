@@ -222,7 +222,7 @@ class EventPatchRequest(BaseModel):
 
 
 # Maps EventType → its payload pydantic model (for PATCH re-validation)
-_TYPE_TO_PAYLOAD_MODEL: dict[EventType, type] = {
+_TYPE_TO_PAYLOAD_MODEL: dict[EventType, type[BaseModel]] = {
     EventType.sleep_start: SleepStartPayload,
     EventType.sleep_end: SleepEndPayload,
     EventType.sleep_interval: SleepIntervalPayload,

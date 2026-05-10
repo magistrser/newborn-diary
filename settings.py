@@ -47,6 +47,11 @@ class ParserSettings(BaseModel):
 
 class QASettings(BaseModel):
     default_window_days: int = Field(default=14)
+    max_tool_iterations: int = Field(default=5)
+    sql_row_cap: int = Field(default=200)
+    sql_statement_timeout_ms: int = Field(default=3000)
+    user_timezone: str = Field(default='Europe/Moscow')
+    agent_max_tokens: int = Field(default=1024)
 
 
 class Settings(BaseModel):

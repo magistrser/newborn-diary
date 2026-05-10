@@ -23,5 +23,10 @@ parser:
 
 qa:
   default_window_days: 14
+  max_tool_iterations: 5
+  sql_row_cap: 200
+  sql_statement_timeout_ms: 3000
+  user_timezone: Europe/Moscow
+  agent_max_tokens: 1024
 
 verbose: true
