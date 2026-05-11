@@ -16,10 +16,10 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import httpx
-import psycopg2
-from psycopg2 import sql
-from psycopg2.extensions import connection as PsycopgConnection
-from psycopg2.extras import Json, RealDictCursor, execute_values
+import psycopg2  # type: ignore[import-untyped]
+from psycopg2 import sql  # type: ignore[import-untyped]
+from psycopg2.extensions import connection as PsycopgConnection  # type: ignore[import-untyped]
+from psycopg2.extras import Json, RealDictCursor, execute_values  # type: ignore[import-untyped]
 
 from settings import PostgresSettings, Settings, load_settings
 
@@ -584,10 +584,17 @@ def generate_cases(
         cases.append(_case(
             'inferred-sleep-duration-summary',
             'sleep',
-            'Сколько всего снов получилось и сколько минут сна суммарно, если считать пробуждением следующую запись после засыпания?',
+            (
+                'Сколько всего снов получилось и сколько минут сна суммарно, '
+                'если считать пробуждением следующую запись после засыпания?'
+            ),
             numbers=[inferred_sleep_count, inferred_sleep_minutes],
             query_contains_any=['sleep_start'],
-            expected={'rule': 'sleep_start_to_next_non_sleep_start', 'intervals': inferred_sleep_count, 'minutes': inferred_sleep_minutes},
+            expected={
+                'rule': 'sleep_start_to_next_non_sleep_start',
+                'intervals': inferred_sleep_count,
+                'minutes': inferred_sleep_minutes,
+            },
         ))
         day_totals = _sleep_duration_totals(inferred_sleep_intervals, timezone, 'day')
         average_sleep_per_day = _rounded_average(day_totals.values())

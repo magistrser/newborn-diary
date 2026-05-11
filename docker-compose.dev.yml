@@ -1,12 +1,76 @@
 services:
   postgres:
     image: postgres:18.3-alpine3.23
+    restart: always
+    network_mode: bridge
     ports:
-      - '5432:5432'
+      - '${POSTGRES_PUBLISHED_PORT:-5432}:5432'
     environment:
-      POSTGRES_DB: 'diary'
-      POSTGRES_USER: 'postgres'
-      POSTGRES_PASSWORD: 'postgres'
-      POSTGRES_HOST_AUTH_METHOD: 'trust'
+      POSTGRES_DB: diary
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust
     volumes:
-      - ./docker-init:/docker-entrypoint-initdb.d
+      - ./postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d diary']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      target: pipeline
+      args:
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-docker.io/library}
+    restart: always
+    network_mode: bridge
+    working_dir: /app
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - 'alembic upgrade head && exec fastapi dev main.py --host 0.0.0.0 --port 8001'
+    ports:
+      - '${DIARY_API_PORT:-8001}:8001'
+    environment:
+      ENVIRONMENT: PRODUCTION
+      PYTHONUNBUFFERED: '1'
+      WATCHFILES_FORCE_POLLING: 'true'
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=2)"
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+  git-puller:
+    image: alpine/git:latest
+    restart: always
+    network_mode: bridge
+    working_dir: /repo
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        set -eu
+        while true; do
+          echo "[$$(date -u '+%Y-%m-%dT%H:%M:%SZ')] Pulling newborn_diary"
+          git -c safe.directory=/repo -C /repo pull --ff-only || true
+          sleep "$${GIT_PULL_INTERVAL_SEC:-300}"
+        done
+    environment:
+      HOME: /host-home
+      GIT_PULL_INTERVAL_SEC: ${GIT_PULL_INTERVAL_SEC:-300}
+    volumes:
+      - .:/repo
+      - ${HOME}:/host-home:ro

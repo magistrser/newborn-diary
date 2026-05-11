@@ -25,8 +25,8 @@ the data by having the LLM generate SQL.
 ## Quick start
 
 ```bash
-# 1. Start Postgres
-docker-compose -p diary -f docker-compose.dev.yml up -d
+# 1. Start Postgres only
+docker compose -p diary -f docker-compose.dev.yml up -d postgres
 
 # 2. Install deps
 uv sync
@@ -37,6 +37,22 @@ uv run alembic upgrade head
 # 4. Start the API (dev mode, port 8001, hot-reload on .py changes)
 uv run fastapi dev --port 8001
 ```
+
+To run the API itself in Docker with the source mounted and FastAPI hot reload enabled:
+
+```bash
+docker compose -f docker-compose.dev.yml up --build
+```
+
+The API container runs with `ENVIRONMENT=PRODUCTION` and mounts local `settings.docker.yml` as
+`/app/settings.yml`. Keep server-specific Postgres and LLM settings there.
+Postgres data is stored in the local `./postgres-data` folder, mounted into the container as
+`/var/lib/postgresql`. PostgreSQL 18 stores the actual cluster data in a versioned subdirectory
+below that path.
+The same compose file includes a `git-puller` sidecar that runs `git pull --ff-only` every
+`GIT_PULL_INTERVAL_SEC` seconds, defaulting to 300. It mounts the server user's home directory
+read-only as Git credential context and relies on FastAPI hot reload for picked-up source changes.
+Dependency changes still require rebuilding the image.
 
 ---
 
@@ -399,4 +415,4 @@ uv run pytest -s tests/
 ```
 
 Integration tests use `settings.test.yml` (set `ENVIRONMENT=TEST` automatically via `pytest.ini`).
-Test DB is `newborn_diary_test`; created by `docker-init/create_test_db.sql`.
+Test DB is `diary_test`; create it in the running local Postgres before integration tests if needed.

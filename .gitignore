@@ -137,3 +137,5 @@ fixtures/coutry_codes.json
 *.rest
 *.http
 settings.yml
+settings.docker.yml
+postgres-data/
