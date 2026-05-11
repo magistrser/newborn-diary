@@ -3,14 +3,56 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from infrastructure.models import Base
 from main import app
+from settings import PostgresSettings, settings
+
+
+def _assert_test_database(postgres: PostgresSettings) -> None:
+    if 'test' not in postgres.db_name:
+        raise RuntimeError(f'Refusing to prepare non-test database {postgres.db_name!r}')
+
+
+def _create_database_if_missing(postgres: PostgresSettings) -> None:
+    maintenance_postgres = postgres.model_copy(update={'db_name': 'postgres'})
+    engine = create_engine(
+        maintenance_postgres.get_sync_url(),
+        isolation_level='AUTOCOMMIT',
+    )
+    try:
+        with engine.connect() as conn:
+            exists = conn.execute(
+                text('SELECT 1 FROM pg_database WHERE datname = :db_name'),
+                {'db_name': postgres.db_name},
+            ).scalar_one_or_none()
+            if exists is not None:
+                return
+
+            db_name = engine.dialect.identifier_preparer.quote(postgres.db_name)
+            conn.execute(text(f'CREATE DATABASE {db_name}'))
+    finally:
+        engine.dispose()
 
 
 @pytest.fixture(scope='session')
-def application_client() -> Generator[TestClient, None, None]:
+def test_database() -> Generator[None, None, None]:
+    _assert_test_database(settings.postgres)
+    _create_database_if_missing(settings.postgres)
+
+    engine = create_engine(settings.postgres.get_sync_url())
+    try:
+        Base.metadata.drop_all(engine)
+        Base.metadata.create_all(engine)
+        yield
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture(scope='session')
+def application_client(test_database: None) -> Generator[TestClient, None, None]:
     with TestClient(app) as client:
         yield client
 
@@ -31,11 +73,8 @@ def from_text_client(application_client: TestClient) -> Generator[tuple[TestClie
 
 
 @pytest.fixture
-async def db_session() -> AsyncGenerator[AsyncSession, None]:
-    from settings import settings
+async def db_session(test_database: None) -> AsyncGenerator[AsyncSession, None]:
     engine = create_async_engine(settings.postgres.get_async_url(), echo=False)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
         async with session.begin():

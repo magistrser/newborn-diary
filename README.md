@@ -417,4 +417,4 @@ uv run pytest -s tests/
 ```
 
 Integration tests use `settings.test.yml` (set `ENVIRONMENT=TEST` automatically via `pytest.ini`).
-Test DB is `diary_test`; create it in the running local Postgres before integration tests if needed.
+The test harness creates and resets the `diary_test` database in the running local Postgres.
