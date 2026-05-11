@@ -26,9 +26,15 @@ def test_sql_prompt_describes_inferred_sleep_duration_rule() -> None:
     )
 
     assert 'считай сон от события `sleep_start` до следующего события после него' in prompt
+    assert 'считай, что ребёнок спал от предыдущей записи до этого `sleep_end`' in prompt
+    assert 'Не оставляй `...` в SQL' in prompt
+    assert 'Не добавляй `p.type <> \'sleep_start\'` внутрь поиска' in prompt
     assert 'source_event_index SMALLINT NOT NULL DEFAULT 0' in prompt
     assert "AND e.type <> 'sleep_start'" in prompt
     assert 'AND e.source_message_id IS NOT DISTINCT FROM s.source_message_id' in prompt
     assert 'CASE WHEN e.occurred_at = s.occurred_at THEN e.source_event_index ELSE 0 END ASC' in prompt
-    assert 'Для среднего сна в день сначала суммируй сон по локальным дням начала сна' in prompt
+    assert "WHERE e.type = 'sleep_end'" in prompt
+    assert 'previous_event.type <> \'sleep_start\'' in prompt
+    assert 'counted.wake_event_id = e.id' in prompt
+    assert 'Для среднего сна в день сначала получи `inferred_sleeps` через полный базовый CTE выше' in prompt
     assert 'average_sleep_minutes_per_month' in prompt

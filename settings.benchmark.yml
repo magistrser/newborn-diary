@@ -9,15 +9,16 @@ postgres:
 llm:
   base_url: http://192.168.2.243:41234/v1
   api_key: not-needed
-  model: google/gemma-4-26b-a4b
+  model: qwen3-14b
   # model: gemma-4-26b-a4b-it
-  max_tokens: 4096
+  max_tokens: 8192
   request_timeout_sec: 600
   tasks:
     parser:
       model: gemma-4-e4b-it
     agentic_qa:
-      max_tokens: 4096
+      model: qwen3-14b
+      max_tokens: 8192
 
 parser:
   context_window_hours: 12

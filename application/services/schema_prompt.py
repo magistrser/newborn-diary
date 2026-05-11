@@ -214,25 +214,31 @@ SELECT COUNT(DISTINCT session_id) AS feeding_count FROM sessions;
 
 ## Подсчёт сна и длительности сна
 
-Пользователь не всегда явно записывает пробуждение. Если нужно посчитать длительность сна,
-считай сон от события `sleep_start` до следующего события после него, у которого `type <> 'sleep_start'`.
-Это следующее действие означает, что ребёнок проснулся. Не суммируй `payload->>'duration_min'`
-из всех типов событий: поле `duration_min` есть не только у сна.
+Пользователь не всегда явно записывает начало или окончание сна. Если нужно посчитать длительность сна:
+- считай сон от события `sleep_start` до следующего события после него, у которого `type <> 'sleep_start'`;
+- если есть `sleep_end`, но он не является пробуждением для уже посчитанного `sleep_start`,
+  считай, что ребёнок спал от предыдущей записи до этого `sleep_end`.
+Не суммируй `payload->>'duration_min'` из всех типов событий: поле `duration_min` есть не только у сна.
+Не оставляй `...` в SQL. Для любых вопросов о длительности сна копируй весь набор CTE ниже:
+`start_based_sleeps`, `sleep_end_without_start`, затем `inferred_sleeps`.
+В `sleep_end_without_start` сначала найди предыдущую запись любого типа, а потом фильтруй
+`previous_event.type <> 'sleep_start'`. Не добавляй `p.type <> 'sleep_start'` внутрь поиска
+предыдущей записи. Чтобы не считать `sleep_end` дважды, используй именно условие
+`NOT EXISTS (SELECT 1 FROM start_based_sleeps counted WHERE counted.wake_event_id = e.id)`.
 
 Базовый CTE для длительности сна:
 
 ```sql
-WITH inferred_sleeps AS (
+WITH start_based_sleeps AS (
   SELECT
     s.id AS id,
     s.occurred_at AS started_at,
-    s.source_event_index AS started_index,
+    wake.id AS wake_event_id,
     wake.occurred_at AS woke_at,
-    wake.source_event_index AS woke_index,
     EXTRACT(EPOCH FROM (wake.occurred_at - s.occurred_at)) / 60.0 AS duration_min
   FROM events s
   CROSS JOIN LATERAL (
-    SELECT e.occurred_at, e.source_event_index
+    SELECT e.id, e.occurred_at, e.source_event_index
     FROM events e
     WHERE (
         e.occurred_at > s.occurred_at
@@ -251,15 +257,52 @@ WITH inferred_sleeps AS (
     LIMIT 1
   ) wake
   WHERE s.type = 'sleep_start'
+),
+sleep_end_without_start AS (
+  SELECT
+    e.id AS id,
+    previous_event.occurred_at AS started_at,
+    e.id AS wake_event_id,
+    e.occurred_at AS woke_at,
+    EXTRACT(EPOCH FROM (e.occurred_at - previous_event.occurred_at)) / 60.0 AS duration_min
+  FROM events e
+  CROSS JOIN LATERAL (
+    SELECT p.id, p.occurred_at, p.type, p.source_event_index
+    FROM events p
+    WHERE (
+        p.occurred_at < e.occurred_at
+        OR (
+          p.occurred_at = e.occurred_at
+          AND p.source_chat_id IS NOT DISTINCT FROM e.source_chat_id
+          AND p.source_message_id IS NOT DISTINCT FROM e.source_message_id
+          AND p.source_event_index < e.source_event_index
+        )
+      )
+    ORDER BY
+      p.occurred_at DESC,
+      CASE WHEN p.occurred_at = e.occurred_at THEN p.source_event_index ELSE 32767 END DESC,
+      p.id DESC
+    LIMIT 1
+  ) previous_event
+  WHERE e.type = 'sleep_end'
+    AND previous_event.type <> 'sleep_start'
+    AND NOT EXISTS (
+      SELECT 1 FROM start_based_sleeps counted WHERE counted.wake_event_id = e.id
+    )
+),
+inferred_sleeps AS (
+  SELECT id, started_at, wake_event_id, woke_at, duration_min FROM start_based_sleeps
+  UNION ALL
+  SELECT id, started_at, wake_event_id, woke_at, duration_min FROM sleep_end_without_start
 )
 SELECT COUNT(*) AS sleep_count, ROUND(SUM(duration_min))::INTEGER AS total_sleep_minutes
 FROM inferred_sleeps;
 ```
 
-Для среднего сна в день сначала суммируй сон по локальным дням начала сна, потом бери AVG:
+Для среднего сна в день сначала получи `inferred_sleeps` через полный базовый CTE выше.
+Затем суммируй сон по локальным дням начала сна и только потом бери AVG:
 
 ```sql
-WITH inferred_sleeps AS (...),
 daily AS (
   SELECT DATE(started_at AT TIME ZONE '{tz}') AS local_day,
          SUM(duration_min) AS sleep_minutes
@@ -270,10 +313,10 @@ SELECT ROUND(AVG(sleep_minutes))::INTEGER AS average_sleep_minutes_per_day
 FROM daily;
 ```
 
-Для среднего сна в месяц сначала суммируй сон по локальным месяцам начала сна, потом бери AVG:
+Для среднего сна в месяц тоже сначала получи `inferred_sleeps` через полный базовый CTE выше.
+Затем суммируй сон по локальным месяцам начала сна и только потом бери AVG:
 
 ```sql
-WITH inferred_sleeps AS (...),
 monthly AS (
   SELECT DATE_TRUNC('month', started_at AT TIME ZONE '{tz}') AS local_month,
          SUM(duration_min) AS sleep_minutes
