@@ -18,7 +18,6 @@ _DEFAULT_SETTINGS = QAConfig(
     sql_row_cap=10,
     sql_statement_timeout_ms=3000,
     user_timezone='Europe/Moscow',
-    agent_max_tokens=512,
 )
 
 
@@ -73,6 +72,7 @@ async def test_happy_path_aggregate(db_session: AsyncSession) -> None:
     assert result.used_window['iterations'] == 2
     assert len(result.used_window['queries']) == 1
     assert result.sources == []
+    assert all('max_tokens' not in call.kwargs for call in llm.chat_with_tools.call_args_list)
 
 
 async def test_error_retry(db_session: AsyncSession) -> None:
@@ -109,12 +109,14 @@ async def test_iteration_cap(db_session: AsyncSession) -> None:
 
     settings = QAConfig(max_tool_iterations=2, sql_row_cap=10,
                         sql_statement_timeout_ms=3000,
-                        user_timezone='Europe/Moscow', agent_max_tokens=256)
+                        user_timezone='Europe/Moscow')
     service = AgenticQAService(llm, SqlAlchemySqlExecutor(db_session), settings)
     result = await service.answer('тест')
 
     assert llm.chat_with_tools.call_count == 2
     assert llm.chat_text.call_count == 1
+    assert all('max_tokens' not in call.kwargs for call in llm.chat_with_tools.call_args_list)
+    assert 'max_tokens' not in llm.chat_text.call_args.kwargs
     assert result.used_window['iterations'] == 2
 
 

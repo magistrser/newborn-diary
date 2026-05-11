@@ -20,7 +20,6 @@ class QAConfig:
     sql_row_cap: int = 200
     sql_statement_timeout_ms: int = 3000
     user_timezone: str = 'Europe/Moscow'
-    agent_max_tokens: int = 1024
 
 
 @dataclass(frozen=True)
@@ -94,6 +93,10 @@ class AssistantMessage:
 
 
 class ApplicationError(Exception):
+    pass
+
+
+class LLMTokenLimitError(ApplicationError):
     pass
 
 

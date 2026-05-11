@@ -9,7 +9,8 @@ postgres:
 llm:
   base_url: http://192.168.2.243:41234/v1
   api_key: not-needed
-  model: gemma-4-26b-a4b-it
+  model: google/gemma-4-26b-a4b
+  # model: gemma-4-26b-a4b-it
   max_tokens: 4096
   request_timeout_sec: 600
   tasks:
@@ -29,6 +30,5 @@ qa:
   sql_row_cap: 200
   sql_statement_timeout_ms: 3000
   user_timezone: Europe/Moscow
-  agent_max_tokens: 1024
 
 verbose: false

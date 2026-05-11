@@ -108,7 +108,7 @@ class AgenticQAService:
 
         for iteration in range(self._settings.max_tool_iterations):
             msg = await self._llm.chat_with_tools(
-                messages, tools, max_tokens=self._settings.agent_max_tokens
+                messages, tools
             )
             messages.append(_assistant_msg_to_dict(msg))
 
@@ -130,7 +130,7 @@ class AgenticQAService:
 
         # Iteration cap reached — force a final text answer
         messages.append({'role': 'user', 'content': 'Answer now based only on the data already gathered above.'})
-        final = await self._llm.chat_text(messages, max_tokens=self._settings.agent_max_tokens)
+        final = await self._llm.chat_text(messages)
         return AnswerResult(
             answer=final,
             used_window={'mode': 'agentic', 'iterations': self._settings.max_tool_iterations, 'queries': queries},

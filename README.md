@@ -131,7 +131,6 @@ qa:
   sql_row_cap: 200             # max rows returned per SQL query
   sql_statement_timeout_ms: 3000
   user_timezone: Europe/Moscow
-  agent_max_tokens: 1024
 
 verbose: false                 # enables DEBUG logging for the application logger
 ```
@@ -303,6 +302,9 @@ event is always returned.
 
 Multi-turn agent loop: LLM is given an `execute_sql` tool and iterates until it either returns
 a text answer (no tool call) or exhausts `max_tool_iterations`.
+
+The token budget for QA model turns comes from `llm.max_tokens`, or from
+`llm.tasks.agentic_qa.max_tokens` when that task override is configured.
 
 At the iteration cap, a forced follow-up message `"Answer now based on the data already gathered
 above."` is appended and one final `chat_text` call is made.

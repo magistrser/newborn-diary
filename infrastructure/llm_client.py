@@ -4,7 +4,7 @@ from typing import Any
 
 from openai import APIConnectionError, AsyncOpenAI
 
-from application.dto import AssistantMessage, ToolCall, ToolFunctionCall
+from application.dto import AssistantMessage, LLMTokenLimitError, ToolCall, ToolFunctionCall
 from settings import LLMSettings
 
 _THINK_RE = re.compile(r'<think>.*?</think>|<\|channel>.*?<channel\|>', re.DOTALL)
@@ -37,6 +37,21 @@ class LLMClient:
             'Check that the local LLM server is running and reachable from this process.'
         )
 
+    def _raise_if_token_limit_reached(
+        self,
+        finish_reason: str | None,
+        *,
+        max_tokens: int | None,
+    ) -> None:
+        if finish_reason != 'length':
+            return
+        effective_max_tokens = max_tokens or self._settings.max_tokens
+        raise LLMTokenLimitError(
+            'LLM response stopped because the max_tokens limit was exhausted '
+            f'(model={self._settings.model!r}, max_tokens={effective_max_tokens}). '
+            'Increase llm.max_tokens or the task-specific llm.tasks.<task>.max_tokens setting.'
+        )
+
     async def chat_json(
         self,
         messages: list[dict[str, Any]],
@@ -51,7 +66,9 @@ class LLMClient:
             )
         except APIConnectionError as exc:
             raise self._connection_error(exc) from exc
-        content = _extract_json(response.choices[0].message.content or '{}')
+        choice = response.choices[0]
+        self._raise_if_token_limit_reached(choice.finish_reason, max_tokens=max_tokens)
+        content = _extract_json(choice.message.content or '{}')
         return json.loads(content or '{}')
 
     async def chat_text(
@@ -68,7 +85,9 @@ class LLMClient:
             )
         except APIConnectionError as exc:
             raise self._connection_error(exc) from exc
-        return _strip_thinking(response.choices[0].message.content or '')
+        choice = response.choices[0]
+        self._raise_if_token_limit_reached(choice.finish_reason, max_tokens=max_tokens)
+        return _strip_thinking(choice.message.content or '')
 
     async def chat_with_tools(
         self,
@@ -88,7 +107,9 @@ class LLMClient:
             )
         except APIConnectionError as exc:
             raise self._connection_error(exc) from exc
-        msg = response.choices[0].message
+        choice = response.choices[0]
+        self._raise_if_token_limit_reached(choice.finish_reason, max_tokens=max_tokens)
+        msg = choice.message
         content = _strip_thinking(msg.content) if msg.content else None
         tool_calls = None
         if msg.tool_calls:

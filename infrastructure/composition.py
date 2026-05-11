@@ -73,7 +73,6 @@ def qa_config_from_settings(qa_settings: QASettings) -> QAConfig:
         sql_row_cap=qa_settings.sql_row_cap,
         sql_statement_timeout_ms=qa_settings.sql_statement_timeout_ms,
         user_timezone=qa_settings.user_timezone,
-        agent_max_tokens=qa_settings.agent_max_tokens,
     )
 
 

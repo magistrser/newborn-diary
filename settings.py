@@ -65,7 +65,6 @@ class QASettings(BaseModel):
     sql_row_cap: int = Field(default=200)
     sql_statement_timeout_ms: int = Field(default=3000)
     user_timezone: str = Field(default='Europe/Moscow')
-    agent_max_tokens: int = Field(default=1024)
 
 
 class Settings(BaseModel):
