@@ -308,43 +308,45 @@
     "question": "Сколько всего снов получилось и сколько минут сна суммарно, если считать пробуждением следующую запись после засыпания, а пробуждение без засыпания считать с предыдущей записи?",
     "expected": {
       "rule": "sleep_start_to_next_non_sleep_start_or_sleep_end_to_previous_event",
-      "intervals": 153,
-      "minutes": 11003
+      "intervals": 152,
+      "minutes": 11272
     },
     "checks": {
       "numbers": [
-        153,
-        11003
+        152,
+        11272
       ],
       "sources": [],
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
         "sleep_start",
-        "sleep_end"
+        "sleep_end",
+        "note"
       ]
     }
   },
   {
     "id": "sleep-end-without-start-summary",
     "category": "sleep",
-    "question": "Если не учитывать обычные записи засыпания, а взять только пробуждения без записанного засыпания, сколько таких дополнительных снов и минут сна получится от предыдущей записи?",
+    "question": "Если отдельно посчитать только дополнительные пробуждения без записанного засыпания, исключив sleep_end, которые уже были пробуждением для sleep_start, сколько таких дополнительных снов и минут сна получится от предыдущей не-note записи?",
     "expected": {
       "rule": "sleep_end_without_paired_sleep_start_to_previous_event",
-      "intervals": 42,
-      "minutes": 3860
+      "intervals": 41,
+      "minutes": 3843
     },
     "checks": {
       "numbers": [
-        42,
-        3860
+        41,
+        3843
       ],
       "sources": [],
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
         "sleep_end",
-        "sleep_start"
+        "sleep_start",
+        "note"
       ]
     }
   },
@@ -353,19 +355,20 @@
     "category": "sleep_stats",
     "question": "В среднем сколько минут сна в день получается по дням, где есть записи сна?",
     "expected": {
-      "average_minutes": 786,
+      "average_minutes": 805,
       "days_with_sleep_data": 14
     },
     "checks": {
       "numbers": [
-        786
+        805
       ],
       "sources": [],
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
         "sleep_start",
-        "AVG"
+        "AVG",
+        "note"
       ]
     }
   },
@@ -374,19 +377,20 @@
     "category": "sleep_stats",
     "question": "В среднем сколько минут сна в месяц получается по месяцам, где есть записи сна?",
     "expected": {
-      "average_minutes": 5501,
+      "average_minutes": 5636,
       "months_with_sleep_data": 2
     },
     "checks": {
       "numbers": [
-        5501
+        5636
       ],
       "sources": [],
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
         "sleep_start",
-        "AVG"
+        "AVG",
+        "note"
       ]
     }
   }

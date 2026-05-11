@@ -176,16 +176,22 @@ WHERE occurred_at >= '2026-04-28 00:00:00+03'
   AND occurred_at <  '2026-04-29 00:00:00+03'
 ```
 
+Если используешь явные границы с `+03`, не добавляй к ним `AT TIME ZONE`:
+литерал с `+03` уже является корректной границей для `TIMESTAMPTZ`.
+
 ЗАПРЕЩЕНО (это UTC-дата, а не московская):
 ```sql
 WHERE occurred_at::date = '2026-04-28'         -- неверно
 WHERE occurred_at >= '2026-04-28 00:00:00+00'  -- неверно (UTC, не Москва)
 WHERE occurred_at >= '2026-04-28 00:00:00'     -- неверно (без TZ)
+WHERE occurred_at >= '2026-04-28 00:00:00+03' AT TIME ZONE '{tz}'  -- неверно (+03 уже достаточно)
 ```
 
 ## Подсчёт кормлений (feeding sessions)
 
 Кормление из левой и правой груди подряд — это ОДНО кормление, а не два.
+Фразы вроде "сколько раз кормили грудью" тоже означают количество сессий грудного кормления,
+а не количество отдельных строк `feed_breast`; фильтруй `type = 'feed_breast'` и группируй близкие записи.
 Правило группировки: несколько событий `feed_breast` считаются одним кормлением,
 если каждое следующее начинается не позже чем через 30 минут после предыдущего.
 Аналогично для `feed_bottle` — каждое отдельное событие является отдельным кормлением,
@@ -215,16 +221,21 @@ SELECT COUNT(DISTINCT session_id) AS feeding_count FROM sessions;
 ## Подсчёт сна и длительности сна
 
 Пользователь не всегда явно записывает начало или окончание сна. Если нужно посчитать длительность сна:
-- считай сон от события `sleep_start` до следующего события после него, у которого `type <> 'sleep_start'`;
+- считай сон от события `sleep_start` до следующего события после него,
+  у которого `type NOT IN ('sleep_start', 'note')`;
 - если есть `sleep_end`, но он не является пробуждением для уже посчитанного `sleep_start`,
-  считай, что ребёнок спал от предыдущей записи до этого `sleep_end`.
+  считай, что ребёнок спал от предыдущей записи с `type <> 'note'` до этого `sleep_end`.
+События `note` — это заметки, они не являются началом или окончанием сна и не должны участвовать
+в расчёте сна как границы интервала.
 Не суммируй `payload->>'duration_min'` из всех типов событий: поле `duration_min` есть не только у сна.
 Не оставляй `...` в SQL. Для любых вопросов о длительности сна копируй весь набор CTE ниже:
 `start_based_sleeps`, `sleep_end_without_start`, затем `inferred_sleeps`.
-В `sleep_end_without_start` сначала найди предыдущую запись любого типа, а потом фильтруй
+В `sleep_end_without_start` сначала найди предыдущую запись с `p.type <> 'note'`, а потом фильтруй
 `previous_event.type <> 'sleep_start'`. Не добавляй `p.type <> 'sleep_start'` внутрь поиска
 предыдущей записи. Чтобы не считать `sleep_end` дважды, используй именно условие
 `NOT EXISTS (SELECT 1 FROM start_based_sleeps counted WHERE counted.wake_event_id = e.id)`.
+Даже если пользователь спрашивает только про такие дополнительные `sleep_end` без записанного засыпания,
+всё равно сначала построй `start_based_sleeps` и исключи уже использованные пробуждения через `NOT EXISTS`.
 
 Базовый CTE для длительности сна:
 
@@ -249,7 +260,7 @@ WITH start_based_sleeps AS (
           AND e.source_event_index > s.source_event_index
         )
       )
-      AND e.type <> 'sleep_start'
+      AND e.type NOT IN ('sleep_start', 'note')
     ORDER BY
       e.occurred_at ASC,
       CASE WHEN e.occurred_at = s.occurred_at THEN e.source_event_index ELSE 0 END ASC,
@@ -270,13 +281,16 @@ sleep_end_without_start AS (
     SELECT p.id, p.occurred_at, p.type, p.source_event_index
     FROM events p
     WHERE (
-        p.occurred_at < e.occurred_at
-        OR (
-          p.occurred_at = e.occurred_at
-          AND p.source_chat_id IS NOT DISTINCT FROM e.source_chat_id
-          AND p.source_message_id IS NOT DISTINCT FROM e.source_message_id
-          AND p.source_event_index < e.source_event_index
+        (
+          p.occurred_at < e.occurred_at
+          OR (
+            p.occurred_at = e.occurred_at
+            AND p.source_chat_id IS NOT DISTINCT FROM e.source_chat_id
+            AND p.source_message_id IS NOT DISTINCT FROM e.source_message_id
+            AND p.source_event_index < e.source_event_index
+          )
         )
+        AND p.type <> 'note'
       )
     ORDER BY
       p.occurred_at DESC,

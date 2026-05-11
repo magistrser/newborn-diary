@@ -15,6 +15,21 @@ def test_sql_prompt_uses_local_today_for_relative_dates() -> None:
     assert 'Сегодня по календарю пользователя: 2026-05-11' in prompt
     assert "Для \"сегодня\" используй локальную дату 2026-05-11" in prompt
     assert "WHERE DATE(occurred_at AT TIME ZONE 'Europe/Moscow') = '2026-05-11'" in prompt
+    assert "Если используешь явные границы с `+03`, не добавляй к ним `AT TIME ZONE`" in prompt
+    assert "WHERE occurred_at >= '2026-04-28 00:00:00+03' AT TIME ZONE 'Europe/Moscow'" in prompt
+
+
+def test_sql_prompt_describes_breast_feeding_session_count() -> None:
+    prompt = build_sql_system_prompt(
+        now=datetime(2026, 5, 11, 12, 0, tzinfo=UTC),
+        tz='Europe/Moscow',
+        row_cap=200,
+        statement_timeout_ms=3000,
+    )
+
+    assert 'сколько раз кормили грудью' in prompt
+    assert 'не количество отдельных строк `feed_breast`' in prompt
+    assert "фильтруй `type = 'feed_breast'` и группируй близкие записи" in prompt
 
 
 def test_sql_prompt_describes_inferred_sleep_duration_rule() -> None:
@@ -26,15 +41,19 @@ def test_sql_prompt_describes_inferred_sleep_duration_rule() -> None:
     )
 
     assert 'считай сон от события `sleep_start` до следующего события после него' in prompt
-    assert 'считай, что ребёнок спал от предыдущей записи до этого `sleep_end`' in prompt
+    assert "у которого `type NOT IN ('sleep_start', 'note')`" in prompt
+    assert "считай, что ребёнок спал от предыдущей записи с `type <> 'note'`" in prompt
+    assert 'События `note` — это заметки' in prompt
     assert 'Не оставляй `...` в SQL' in prompt
     assert 'Не добавляй `p.type <> \'sleep_start\'` внутрь поиска' in prompt
     assert 'source_event_index SMALLINT NOT NULL DEFAULT 0' in prompt
-    assert "AND e.type <> 'sleep_start'" in prompt
+    assert "AND e.type NOT IN ('sleep_start', 'note')" in prompt
     assert 'AND e.source_message_id IS NOT DISTINCT FROM s.source_message_id' in prompt
     assert 'CASE WHEN e.occurred_at = s.occurred_at THEN e.source_event_index ELSE 0 END ASC' in prompt
+    assert "AND p.type <> 'note'" in prompt
     assert "WHERE e.type = 'sleep_end'" in prompt
     assert 'previous_event.type <> \'sleep_start\'' in prompt
     assert 'counted.wake_event_id = e.id' in prompt
+    assert 'только про такие дополнительные `sleep_end` без записанного засыпания' in prompt
     assert 'Для среднего сна в день сначала получи `inferred_sleeps` через полный базовый CTE выше' in prompt
     assert 'average_sleep_minutes_per_month' in prompt
