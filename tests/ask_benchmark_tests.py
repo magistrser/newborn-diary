@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -100,27 +101,50 @@ def test_generate_cases_counts_feeding_questions_as_sessions() -> None:
     assert by_id['count-type-feed_breast']['checks']['numbers'] == [2]
 
 
-def test_generate_cases_counts_all_sleep_end_events_and_sums_known_durations() -> None:
+def test_generate_cases_infers_sleep_from_start_to_next_non_start_event() -> None:
     events = [
-        _event('00000000-0000-0000-0000-000000000001', '2026-05-10T06:00:00Z', 'sleep_end', {}),
+        _event('00000000-0000-0000-0000-000000000001', '2026-05-10T06:00:00Z', 'sleep_start', {}),
         _event(
             '00000000-0000-0000-0000-000000000002',
-            '2026-05-10T07:00:00Z',
-            'sleep_end',
-            {'duration_min': 45},
+            '2026-05-10T06:15:00Z',
+            'sleep_start',
+            {},
+        ),
+        _event(
+            '00000000-0000-0000-0000-000000000003',
+            '2026-05-10T06:45:00Z',
+            'diaper',
+            {'kind': 'pee'},
         ),
     ]
 
     cases = ask.generate_cases(events)
-    sleep_case = next(case for case in cases if case['id'] == 'sleep-end-duration-summary')
+    sleep_case = next(case for case in cases if case['id'] == 'inferred-sleep-duration-summary')
 
-    assert sleep_case['expected'] == {'event_type': 'sleep_end', 'intervals': 2, 'minutes': 45}
-    assert sleep_case['checks']['numbers'] == [2, 45]
+    assert sleep_case['expected'] == {
+        'rule': 'sleep_start_to_next_non_sleep_start',
+        'intervals': 2,
+        'minutes': 75,
+    }
+    assert sleep_case['checks']['numbers'] == [2, 75]
 
     average_day_case = next(case for case in cases if case['id'] == 'average-sleep-minutes-per-day')
     average_month_case = next(case for case in cases if case['id'] == 'average-sleep-minutes-per-month')
-    assert average_day_case['expected'] == {'average_minutes': 45, 'days_with_sleep_data': 1}
-    assert average_month_case['expected'] == {'average_minutes': 45, 'months_with_sleep_data': 1}
+    assert average_day_case['expected'] == {'average_minutes': 75, 'days_with_sleep_data': 1}
+    assert average_month_case['expected'] == {'average_minutes': 75, 'months_with_sleep_data': 1}
+
+
+def test_generate_cases_adds_today_case_after_pinned_snapshot() -> None:
+    events = [
+        _event('00000000-0000-0000-0000-000000000001', '2026-05-10T18:00:00Z', 'diaper', {'kind': 'pee'}),
+    ]
+
+    cases = ask.generate_cases(events, now=datetime(2026, 5, 10, 22, 0, tzinfo=UTC))
+    today_case = next(case for case in cases if case['id'] == 'count-today-after-snapshot')
+
+    assert today_case['question'] == 'Сколько записей сегодня?'
+    assert today_case['expected'] == {'local_day': '2026-05-11', 'count': 0}
+    assert today_case['checks']['numbers'] == [0]
 
 
 def test_score_case_checks_status_numbers_sources_queries_and_iterations() -> None:
@@ -164,6 +188,27 @@ def test_score_case_reports_failures() -> None:
 
     assert score['passed'] is False
     assert len(score['failures']) == 5
+
+
+def test_score_case_accepts_zero_answer_without_digit() -> None:
+    case = {
+        'checks': {
+            'numbers': [0],
+            'sources': [],
+            'max_iterations': 2,
+            'requires_sql': True,
+            'query_contains_any': [],
+        },
+    }
+    response = {
+        'answer': 'Сегодня записей нет.',
+        'used_window': {'iterations': 2, 'queries': ['SELECT count(*) FROM events']},
+        'sources': [],
+    }
+
+    score = ask.score_case(case, 200, response)
+
+    assert score == {'passed': True, 'failures': []}
 
 
 def test_assert_benchmark_settings_requires_dedicated_db() -> None:

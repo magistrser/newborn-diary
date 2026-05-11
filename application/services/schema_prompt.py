@@ -2,6 +2,7 @@ import types as _types
 from datetime import datetime
 from enum import Enum
 from typing import Union, get_args, get_origin
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
 
@@ -96,6 +97,7 @@ def _describe_payload(payload_cls: type[BaseModel]) -> str:
 
 def build_sql_system_prompt(now: datetime, tz: str, row_cap: int, statement_timeout_ms: int) -> str:
     type_list = ', '.join(t.value for t in EventType)
+    local_now = now.astimezone(ZoneInfo(tz))
 
     payload_sections = []
     for event_type, payload_cls in _PAYLOAD_BY_TYPE.items():
@@ -119,7 +121,8 @@ CREATE TABLE events (
     raw_text        TEXT,
     source_type     VARCHAR(50) NOT NULL,
     source_chat_id  BIGINT,
-    source_message_id VARCHAR(255)
+    source_message_id VARCHAR(255),
+    source_event_index SMALLINT NOT NULL DEFAULT 0
 );
 -- Индексы: ix_events_occurred_at, ix_events_type
 ```
@@ -138,15 +141,26 @@ CREATE TABLE events (
 
 - Только SELECT (никакого INSERT/UPDATE/DELETE/DDL).
 - Текущее время UTC: {now.isoformat()}.
+- Текущее локальное время пользователя ({tz}): {local_now.isoformat()}.
+- Сегодня по календарю пользователя: {local_now.date().isoformat()}.
 - Часовой пояс пользователя: {tz} — используй `AT TIME ZONE '{tz}'` для отображения локального времени.
 - Возвращается не более {row_cap} строк (если truncated=true — увеличь агрегацию).
 - Таймаут запроса: {statement_timeout_ms} мс.
 - Если запрос вернул ошибку — исправь SQL и повтори.
-- Когда перечисляешь конкретные события — включай колонку `id` (UUID) в SELECT.
+- Когда перечисляешь конкретные события или отвечаешь про последнее/первое конкретное событие — обязательно включай колонку `id` (UUID) в SELECT.
 - После получения данных — дай итоговый ответ на языке вопроса.
-- Отвечай простым текстом без Markdown-разметки, таблиц и HTML-тегов.
+- Отвечай простым текстом без Markdown-разметки, таблиц, HTML-тегов и служебных токенов.
 
 ## Фильтрация по дате (КРИТИЧНО)
+
+Слова "сегодня", "вчера", "завтра", "на этой неделе", "на прошлой неделе" —
+это ВСЕГДА даты в календаре пользователя ({tz}), а не UTC.
+
+Для "сегодня" используй локальную дату {local_now.date().isoformat()}.
+ПРАВИЛЬНО:
+```sql
+WHERE DATE(occurred_at AT TIME ZONE '{tz}') = '{local_now.date().isoformat()}'
+```
 
 Когда пользователь спрашивает о событиях "за X число" или "X апреля" и т.п. —
 ВСЕГДА фильтруй по московскому календарному дню, не по UTC.
@@ -195,4 +209,76 @@ sessions AS (
 SELECT COUNT(DISTINCT session_id) AS feeding_count FROM sessions;
 ```
 
-Используй этот подход всякий раз, когда вопрос касается количества кормлений или частоты еды."""
+Используй этот подход всякий раз, когда вопрос касается количества кормлений или частоты еды.
+
+## Подсчёт сна и длительности сна
+
+Пользователь не всегда явно записывает пробуждение. Если нужно посчитать длительность сна,
+считай сон от события `sleep_start` до следующего события после него, у которого `type <> 'sleep_start'`.
+Это следующее действие означает, что ребёнок проснулся. Не суммируй `payload->>'duration_min'`
+из всех типов событий: поле `duration_min` есть не только у сна.
+
+Базовый CTE для длительности сна:
+
+```sql
+WITH inferred_sleeps AS (
+  SELECT
+    s.id AS id,
+    s.occurred_at AS started_at,
+    s.source_event_index AS started_index,
+    wake.occurred_at AS woke_at,
+    wake.source_event_index AS woke_index,
+    EXTRACT(EPOCH FROM (wake.occurred_at - s.occurred_at)) / 60.0 AS duration_min
+  FROM events s
+  CROSS JOIN LATERAL (
+    SELECT e.occurred_at, e.source_event_index
+    FROM events e
+    WHERE (
+        e.occurred_at > s.occurred_at
+        OR (
+          e.occurred_at = s.occurred_at
+          AND e.source_chat_id IS NOT DISTINCT FROM s.source_chat_id
+          AND e.source_message_id IS NOT DISTINCT FROM s.source_message_id
+          AND e.source_event_index > s.source_event_index
+        )
+      )
+      AND e.type <> 'sleep_start'
+    ORDER BY
+      e.occurred_at ASC,
+      CASE WHEN e.occurred_at = s.occurred_at THEN e.source_event_index ELSE 0 END ASC,
+      e.id ASC
+    LIMIT 1
+  ) wake
+  WHERE s.type = 'sleep_start'
+)
+SELECT COUNT(*) AS sleep_count, ROUND(SUM(duration_min))::INTEGER AS total_sleep_minutes
+FROM inferred_sleeps;
+```
+
+Для среднего сна в день сначала суммируй сон по локальным дням начала сна, потом бери AVG:
+
+```sql
+WITH inferred_sleeps AS (...),
+daily AS (
+  SELECT DATE(started_at AT TIME ZONE '{tz}') AS local_day,
+         SUM(duration_min) AS sleep_minutes
+  FROM inferred_sleeps
+  GROUP BY local_day
+)
+SELECT ROUND(AVG(sleep_minutes))::INTEGER AS average_sleep_minutes_per_day
+FROM daily;
+```
+
+Для среднего сна в месяц сначала суммируй сон по локальным месяцам начала сна, потом бери AVG:
+
+```sql
+WITH inferred_sleeps AS (...),
+monthly AS (
+  SELECT DATE_TRUNC('month', started_at AT TIME ZONE '{tz}') AS local_month,
+         SUM(duration_min) AS sleep_minutes
+  FROM inferred_sleeps
+  GROUP BY local_month
+)
+SELECT ROUND(AVG(sleep_minutes))::INTEGER AS average_sleep_minutes_per_month
+FROM monthly;
+```"""

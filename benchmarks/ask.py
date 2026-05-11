@@ -126,6 +126,8 @@ RU_MONTHS = {
     11: 'ноября',
     12: 'декабря',
 }
+
+
 class BenchmarkError(Exception):
     pass
 
@@ -364,37 +366,90 @@ def _sleep_interval_summary(events: list[dict[str, Any]]) -> tuple[int, int]:
     return count, total_minutes
 
 
+def _inferred_sleep_intervals(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    intervals = []
+    for event in events:
+        if event['type'] != 'sleep_start':
+            continue
+        started_at = _parse_datetime(event['occurred_at'])
+        wake_candidates = [
+            candidate
+            for candidate in events
+            if candidate['type'] != 'sleep_start' and _is_after_sleep_start(candidate, event)
+        ]
+        wake_candidates.sort(
+            key=lambda candidate: (
+                _parse_datetime(candidate['occurred_at']),
+                candidate.get('source_event_index') or 0
+                if _parse_datetime(candidate['occurred_at']) == started_at
+                else 0,
+                candidate['id'],
+            )
+        )
+        wake_event = wake_candidates[0] if wake_candidates else None
+        if wake_event is None:
+            continue
+        woke_at = _parse_datetime(wake_event['occurred_at'])
+        duration_min = (woke_at - started_at).total_seconds() / 60.0
+        if duration_min >= 0:
+            intervals.append({
+                'id': event['id'],
+                'started_at': event['occurred_at'],
+                'woke_at': wake_event['occurred_at'],
+                'duration_min': duration_min,
+                'wake_event_type': wake_event['type'],
+            })
+    return intervals
+
+
+def _is_after_sleep_start(candidate: dict[str, Any], sleep_start: dict[str, Any]) -> bool:
+    candidate_at = _parse_datetime(candidate['occurred_at'])
+    started_at = _parse_datetime(sleep_start['occurred_at'])
+    if candidate_at > started_at:
+        return True
+    return (
+        candidate_at == started_at
+        and candidate.get('source_chat_id') == sleep_start.get('source_chat_id')
+        and candidate.get('source_message_id') == sleep_start.get('source_message_id')
+        and (candidate.get('source_event_index') or 0) > (sleep_start.get('source_event_index') or 0)
+    )
+
+
+def _inferred_sleep_summary(events: list[dict[str, Any]]) -> tuple[int, int]:
+    intervals = _inferred_sleep_intervals(events)
+    return len(intervals), round(sum(interval['duration_min'] for interval in intervals))
+
+
 def _sleep_duration_totals(
-    events: Iterable[dict[str, Any]],
+    intervals: Iterable[dict[str, Any]],
     timezone: ZoneInfo,
     period: str,
-) -> Counter[str]:
-    totals: Counter[str] = Counter()
-    for event in events:
-        if event['type'] != 'sleep_end':
-            continue
-        duration_min = (event.get('payload') or {}).get('duration_min')
-        if not isinstance(duration_min, int) or duration_min < 0:
-            continue
-        local_date = _parse_datetime(event['occurred_at']).astimezone(timezone)
+) -> dict[str, float]:
+    totals: dict[str, float] = defaultdict(float)
+    for interval in intervals:
+        local_date = _parse_datetime(interval['started_at']).astimezone(timezone)
         if period == 'day':
             key = local_date.date().isoformat()
         elif period == 'month':
             key = local_date.strftime('%Y-%m')
         else:
             raise ValueError(f'Unsupported sleep average period: {period}')
-        totals[key] += duration_min
+        totals[key] += interval['duration_min']
     return totals
 
 
-def _rounded_average(values: Iterable[int]) -> int:
+def _rounded_average(values: Iterable[float]) -> int:
     values = list(values)
     if not values:
         return 0
     return round(sum(values) / len(values))
 
 
-def generate_cases(events: list[dict[str, Any]], timezone_name: str = 'Europe/Moscow') -> list[dict[str, Any]]:
+def generate_cases(
+    events: list[dict[str, Any]],
+    timezone_name: str = 'Europe/Moscow',
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
     if not events:
         raise BenchmarkError('Cannot generate /ask benchmark cases from an empty event snapshot')
 
@@ -439,6 +494,18 @@ def generate_cases(events: list[dict[str, Any]], timezone_name: str = 'Europe/Mo
         expected={'local_day': top_day, 'count': top_day_count},
     ))
 
+    latest_day = max(_parse_datetime(event['occurred_at']).astimezone(timezone).date() for event in events)
+    local_today = (now or datetime.now(UTC)).astimezone(timezone).date()
+    if local_today > latest_day:
+        cases.append(_case(
+            'count-today-after-snapshot',
+            'relative_dates',
+            'Сколько записей сегодня?',
+            numbers=[0],
+            query_contains_any=['AT TIME ZONE', '+03'],
+            expected={'local_day': local_today.isoformat(), 'count': 0},
+        ))
+
     poo_count = sum(1 for event in events if _is_poo_diaper(event))
     if poo_count:
         cases.append(_case(
@@ -450,7 +517,6 @@ def generate_cases(events: list[dict[str, Any]], timezone_name: str = 'Europe/Mo
             expected={'kinds': ['poo', 'both'], 'count': poo_count},
         ))
 
-    latest_day = max(_parse_datetime(event['occurred_at']).astimezone(timezone).date() for event in events)
     previous_week_start, previous_week_end = _previous_week_range(latest_day)
     previous_week_poo_counts = _poo_counts_by_day(events, timezone, previous_week_start, previous_week_end)
     if previous_week_poo_counts:
@@ -512,17 +578,18 @@ def generate_cases(events: list[dict[str, Any]], timezone_name: str = 'Europe/Mo
         expected={'source_ids': [event['id'] for event in latest_events]},
     ))
 
-    sleep_end_count, sleep_end_minutes = _sleep_end_summary(events)
-    if sleep_end_count:
+    inferred_sleep_intervals = _inferred_sleep_intervals(events)
+    inferred_sleep_count, inferred_sleep_minutes = _inferred_sleep_summary(events)
+    if inferred_sleep_count:
         cases.append(_case(
-            'sleep-end-duration-summary',
+            'inferred-sleep-duration-summary',
             'sleep',
-            'Сколько раз малыш просыпался и сколько минут сна суммарно записано?',
-            numbers=[sleep_end_count, sleep_end_minutes],
-            query_contains_any=['sleep_end'],
-            expected={'event_type': 'sleep_end', 'intervals': sleep_end_count, 'minutes': sleep_end_minutes},
+            'Сколько всего снов получилось и сколько минут сна суммарно, если считать пробуждением следующую запись после засыпания?',
+            numbers=[inferred_sleep_count, inferred_sleep_minutes],
+            query_contains_any=['sleep_start'],
+            expected={'rule': 'sleep_start_to_next_non_sleep_start', 'intervals': inferred_sleep_count, 'minutes': inferred_sleep_minutes},
         ))
-        day_totals = _sleep_duration_totals(events, timezone, 'day')
+        day_totals = _sleep_duration_totals(inferred_sleep_intervals, timezone, 'day')
         average_sleep_per_day = _rounded_average(day_totals.values())
         if average_sleep_per_day:
             cases.append(_case(
@@ -530,13 +597,13 @@ def generate_cases(events: list[dict[str, Any]], timezone_name: str = 'Europe/Mo
                 'sleep_stats',
                 'В среднем сколько минут сна в день получается по дням, где есть записи сна?',
                 numbers=[average_sleep_per_day],
-                query_contains_any=['sleep_end', 'duration_min', 'AVG'],
+                query_contains_any=['sleep_start', 'AVG'],
                 expected={
                     'average_minutes': average_sleep_per_day,
                     'days_with_sleep_data': len(day_totals),
                 },
             ))
-        month_totals = _sleep_duration_totals(events, timezone, 'month')
+        month_totals = _sleep_duration_totals(inferred_sleep_intervals, timezone, 'month')
         average_sleep_per_month = _rounded_average(month_totals.values())
         if average_sleep_per_month:
             cases.append(_case(
@@ -544,7 +611,7 @@ def generate_cases(events: list[dict[str, Any]], timezone_name: str = 'Europe/Mo
                 'sleep_stats',
                 'В среднем сколько минут сна в месяц получается по месяцам, где есть записи сна?',
                 numbers=[average_sleep_per_month],
-                query_contains_any=['sleep_end', 'duration_min', 'AVG'],
+                query_contains_any=['sleep_start', 'AVG'],
                 expected={
                     'average_minutes': average_sleep_per_month,
                     'months_with_sleep_data': len(month_totals),
@@ -707,6 +774,17 @@ def _answer_numbers(answer: str) -> list[int]:
     return [int(match) for match in re.findall(r'(?<![\d.,])-?\d+(?![\d.,])', answer)]
 
 
+def _answer_contains_expected_number(answer: str, answer_numbers: list[int], number: int) -> bool:
+    if number in answer_numbers or str(number) in answer:
+        return True
+    if number == 0:
+        answer_lower = answer.lower()
+        return bool(re.search(r'\bнет\b', answer_lower)) or any(
+            fragment in answer_lower for fragment in ('нету', 'не было', 'отсутств')
+        )
+    return False
+
+
 def _combined_queries(response_data: dict[str, Any]) -> str:
     used_window = response_data.get('used_window') or {}
     queries = used_window.get('queries') or []
@@ -725,7 +803,7 @@ def score_case(case: dict[str, Any], status_code: int | None, response_data: dic
     answer = str(response_data.get('answer') or '')
     answer_numbers = _answer_numbers(answer)
     for number in checks.get('numbers') or []:
-        if number not in answer_numbers and str(number) not in answer:
+        if not _answer_contains_expected_number(answer, answer_numbers, number):
             failures.append(f'answer does not contain expected number {number}')
 
     used_window = response_data.get('used_window') or {}

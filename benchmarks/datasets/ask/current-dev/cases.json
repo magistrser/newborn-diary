@@ -60,6 +60,27 @@
     }
   },
   {
+    "id": "count-today-after-snapshot",
+    "category": "relative_dates",
+    "question": "Сколько записей сегодня?",
+    "expected": {
+      "local_day": "2026-05-11",
+      "count": 0
+    },
+    "checks": {
+      "numbers": [
+        0
+      ],
+      "sources": [],
+      "max_iterations": 5,
+      "requires_sql": true,
+      "query_contains_any": [
+        "AT TIME ZONE",
+        "+03"
+      ]
+    }
+  },
+  {
     "id": "count-poo-diapers",
     "category": "diapers",
     "question": "Сколько раз был стул за всё время?",
@@ -182,24 +203,24 @@
     }
   },
   {
-    "id": "sleep-end-duration-summary",
+    "id": "inferred-sleep-duration-summary",
     "category": "sleep",
-    "question": "Сколько раз малыш просыпался и сколько минут сна суммарно записано?",
+    "question": "Сколько всего снов получилось и сколько минут сна суммарно, если считать пробуждением следующую запись после засыпания?",
     "expected": {
-      "event_type": "sleep_end",
-      "intervals": 96,
-      "minutes": 4980
+      "rule": "sleep_start_to_next_non_sleep_start",
+      "intervals": 104,
+      "minutes": 6555
     },
     "checks": {
       "numbers": [
-        96,
-        4980
+        104,
+        6555
       ],
       "sources": [],
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
-        "sleep_end"
+        "sleep_start"
       ]
     }
   },
@@ -208,19 +229,18 @@
     "category": "sleep_stats",
     "question": "В среднем сколько минут сна в день получается по дням, где есть записи сна?",
     "expected": {
-      "average_minutes": 383,
+      "average_minutes": 504,
       "days_with_sleep_data": 13
     },
     "checks": {
       "numbers": [
-        383
+        504
       ],
       "sources": [],
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
-        "sleep_end",
-        "duration_min",
+        "sleep_start",
         "AVG"
       ]
     }
@@ -230,19 +250,18 @@
     "category": "sleep_stats",
     "question": "В среднем сколько минут сна в месяц получается по месяцам, где есть записи сна?",
     "expected": {
-      "average_minutes": 2490,
+      "average_minutes": 3278,
       "months_with_sleep_data": 2
     },
     "checks": {
       "numbers": [
-        2490
+        3278
       ],
       "sources": [],
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
-        "sleep_end",
-        "duration_min",
+        "sleep_start",
         "AVG"
       ]
     }
