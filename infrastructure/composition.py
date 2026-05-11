@@ -44,7 +44,7 @@ def _configure_verbose_logging() -> None:
             },
         },
     })
-    logging.getLogger('application').info('Verbose logging enabled')
+    logging.getLogger('application').debug('Verbose logging enabled')
 
 
 class SessionTransaction:
