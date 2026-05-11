@@ -1,0 +1,766 @@
+{
+  "run_id": "20260511T190406Z",
+  "dataset": "current-dev",
+  "notes": "remote snapshot sleep_end fallback with stricter sleep CTE prompt",
+  "port": 8011,
+  "settings": {
+    "environment": "BENCHMARK",
+    "db_name": "diary_benchmark",
+    "llm_model": "qwen3-14b",
+    "llm_base_url": "http://192.168.2.243:41234/v1"
+  },
+  "git": {
+    "commit": "07dcebc",
+    "status_short": "M application/services/schema_prompt.py\n M benchmarks/ask.py\n M benchmarks/datasets/ask/current-dev/cases.json\n M benchmarks/datasets/ask/current-dev/events.json\n M settings.benchmark.yml\n M tests/ask_benchmark_tests.py\n M tests/schema_prompt_tests.py\n?? benchmarks/iterations/ask/20260511T171208Z.md\n?? benchmarks/iterations/ask/20260511T172010Z.md\n?? benchmarks/iterations/ask/20260511T173118Z.md\n?? benchmarks/iterations/ask/20260511T175541Z.md\n?? benchmarks/iterations/ask/20260511T183321Z.md\n?? benchmarks/iterations/ask/20260511T183721Z.md\n?? benchmarks/iterations/ask/20260511T185948Z.md\n?? benchmarks/results/ask/20260511T171208Z.json\n?? benchmarks/results/ask/20260511T172010Z.json\n?? benchmarks/results/ask/20260511T173118Z.json\n?? benchmarks/results/ask/20260511T175541Z.json\n?? benchmarks/results/ask/20260511T183321Z.json\n?? benchmarks/results/ask/20260511T183721Z.json\n?? benchmarks/results/ask/20260511T185948Z.json",
+    "diff_stat": "application/services/schema_prompt.py           |   59 +-\n benchmarks/ask.py                               |  201 ++-\n benchmarks/datasets/ask/current-dev/cases.json  |  204 ++-\n benchmarks/datasets/ask/current-dev/events.json | 1769 +++++++++++++++--------\n settings.benchmark.yml                          |    7 +-\n tests/ask_benchmark_tests.py                    |   83 +-\n tests/schema_prompt_tests.py                    |    6 +\n 7 files changed, 1681 insertions(+), 648 deletions(-)"
+  },
+  "summary": {
+    "passed": 14,
+    "total": 16,
+    "pass_rate": 0.875,
+    "by_category": {
+      "counts": {
+        "passed": 2,
+        "total": 2
+      },
+      "daily": {
+        "passed": 1,
+        "total": 1
+      },
+      "daily_stats": {
+        "passed": 4,
+        "total": 4
+      },
+      "diapers": {
+        "passed": 2,
+        "total": 2
+      },
+      "feeding": {
+        "passed": 1,
+        "total": 1
+      },
+      "sleep": {
+        "passed": 1,
+        "total": 2
+      },
+      "sleep_stats": {
+        "passed": 1,
+        "total": 2
+      },
+      "sources": {
+        "passed": 2,
+        "total": 2
+      }
+    }
+  },
+  "case_results": [
+    {
+      "case": {
+        "id": "total-events",
+        "category": "counts",
+        "question": "Сколько всего записей в дневнике?",
+        "expected": {
+          "total_events": 571
+        },
+        "checks": {
+          "numbers": [
+            571
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": []
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 2985,
+      "response": {
+        "answer": "В дневнике всего 571 запись.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT COUNT(*) AS total_entries FROM events;"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "count-type-feed_breast",
+        "category": "counts",
+        "question": "Сколько раз кормили грудью за всё время?",
+        "expected": {
+          "type": "feed_breast",
+          "count": 143,
+          "unit": "sessions"
+        },
+        "checks": {
+          "numbers": [
+            143
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "feed_breast"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 9651,
+      "response": {
+        "answer": "За всё время кормили грудью 143 раза.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "WITH feedings AS (\n  SELECT occurred_at,\n         LAG(occurred_at) OVER (ORDER BY occurred_at) AS prev_at\n  FROM events\n  WHERE type = 'feed_breast'\n),\nsessions AS (\n  SELECT occurred_at,\n         SUM(CASE WHEN prev_at IS NULL OR occurred_at - prev_at > INTERVAL '30 minutes' THEN 1 ELSE 0 END)\n           OVER (ORDER BY occurred_at) AS session_id\n  FROM feedings\n)\nSELECT COUNT(DISTINCT session_id) AS feeding_count FROM sessions;"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "count-day-2026-05-10",
+        "category": "daily",
+        "question": "Сколько записей было 10 мая 2026?",
+        "expected": {
+          "local_day": "2026-05-10",
+          "count": 58
+        },
+        "checks": {
+          "numbers": [
+            58
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "2026-05-10",
+            "AT TIME ZONE",
+            "+03"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 6378,
+      "response": {
+        "answer": "10 мая 2026 было 58 записей.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT COUNT(*) AS count FROM events WHERE DATE(occurred_at AT TIME ZONE 'Europe/Moscow') = '2026-05-10';"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "latest-week-events-total",
+        "category": "daily_stats",
+        "question": "Сколько всего записей было за неделю с 11 мая 2026 по 17 мая 2026?",
+        "expected": {
+          "date_range": [
+            "2026-05-11",
+            "2026-05-17"
+          ],
+          "total_events": 40
+        },
+        "checks": {
+          "numbers": [
+            40
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "2026-05-11",
+            "2026-05-17",
+            "AT TIME ZONE",
+            "+03"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 10872,
+      "response": {
+        "answer": "За неделю с 11 мая 2026 по 17 мая 2026 было всего 40 записей.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT COUNT(*) AS total_entries FROM events WHERE occurred_at >= '2026-05-11 00:00:00+03' AND occurred_at < '2026-05-18 00:00:00+03';"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "latest-week-events-by-day",
+        "category": "daily_stats",
+        "question": "Покажи статистику количества записей по дням за неделю с 11 мая 2026 по 17 мая 2026.",
+        "expected": {
+          "date_range": [
+            "2026-05-11",
+            "2026-05-17"
+          ],
+          "day_counts": {
+            "2026-05-11": 40,
+            "2026-05-12": 0,
+            "2026-05-13": 0,
+            "2026-05-14": 0,
+            "2026-05-15": 0,
+            "2026-05-16": 0,
+            "2026-05-17": 0
+          }
+        },
+        "checks": {
+          "numbers": [
+            40,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "2026-05-11",
+            "2026-05-17",
+            "AT TIME ZONE",
+            "GROUP BY"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 13277,
+      "response": {
+        "answer": "За неделю с 11 по 17 мая 2026 года в дневнике записаны события только за 11 мая (40 записей). На остальные дни (12-17 мая) событий не найдено.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT DATE(occurred_at AT TIME ZONE 'Europe/Moscow') AS local_day, COUNT(*) AS event_count FROM events WHERE DATE(occurred_at AT TIME ZONE 'Europe/Moscow') BETWEEN '2026-05-11' AND '2026-05-17' GROUP BY local_day ORDER BY local_day;"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "latest-week-average-events-per-day",
+        "category": "daily_stats",
+        "question": "В среднем сколько записей в день было за неделю с 11 мая 2026 по 17 мая 2026? Округли до целого.",
+        "expected": {
+          "date_range": [
+            "2026-05-11",
+            "2026-05-17"
+          ],
+          "average_events_per_day": 6,
+          "days": 7
+        },
+        "checks": {
+          "numbers": [
+            6
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "2026-05-11",
+            "2026-05-17",
+            "AT TIME ZONE",
+            "AVG"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 10767,
+      "response": {
+        "answer": "В среднем за день с 11 мая по 17 мая 2026 было 6 записей.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT ROUND(COUNT(*)::NUMERIC / 7)::INTEGER AS avg_per_day FROM events WHERE occurred_at >= '2026-05-11 00:00:00+03' AND occurred_at < '2026-05-18 00:00:00+03';"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "latest-week-busiest-event-day",
+        "category": "daily_stats",
+        "question": "В какой день за неделю с 11 мая 2026 по 17 мая 2026 было больше всего записей и сколько?",
+        "expected": {
+          "date_range": [
+            "2026-05-11",
+            "2026-05-17"
+          ],
+          "local_day": "2026-05-11",
+          "count": 40
+        },
+        "checks": {
+          "numbers": [
+            11,
+            40
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "2026-05-11",
+            "2026-05-17",
+            "AT TIME ZONE",
+            "GROUP BY"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 45076,
+      "response": {
+        "answer": "День с наибольшим количеством записей — **вторник, 11 мая 2026 года**. В этот день было зафиксировано **40 событий**.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 3,
+          "queries": [
+            "SELECT local_day, COUNT(*) AS count FROM (\n  SELECT DATE(occurred_at AT TIME ZONE 'Europe/Moscow') AS local_day\n  FROM events\n  WHERE occurred_at >= '2026-05-11 00:00:00+03'\n    AND occurred_at < '2026-05-18 00:00:00+03'\n  GROUP BY local_day\n) AS days\nORDER BY count DESC\nLIMIT 1;",
+            "SELECT local_day, count FROM (\n  SELECT DATE(occurred_at AT TIME ZONE 'Europe/Moscow') AS local_day, COUNT(*) AS count\n  FROM events\n  WHERE occurred_at >= '2026-05-11 00:00:00+03'\n    AND occurred_at < '2026-05-18 00:00:00+03'\n  GROUP BY local_day\n) AS days\nORDER BY count DESC\nLIMIT 1;"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "count-poo-diapers",
+        "category": "diapers",
+        "question": "Сколько раз был стул за всё время?",
+        "expected": {
+          "kinds": [
+            "poo",
+            "both"
+          ],
+          "count": 22
+        },
+        "checks": {
+          "numbers": [
+            22
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "diaper",
+            "poo",
+            "both"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 4141,
+      "response": {
+        "answer": "За всё время было 22 стула.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT COUNT(*) AS stool_count FROM events WHERE type = 'diaper' AND (payload->>'kind') IN ('poo', 'both');"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "previous-week-most-poo-day",
+        "category": "diapers",
+        "question": "На прошлой неделе, с 4 мая 2026 по 10 мая 2026, в какой день было больше всего стула и сколько раз?",
+        "expected": {
+          "local_day": "2026-05-08",
+          "count": 2,
+          "date_range": [
+            "2026-05-04",
+            "2026-05-10"
+          ]
+        },
+        "checks": {
+          "numbers": [
+            8,
+            2
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "2026-05-04",
+            "2026-05-10",
+            "diaper",
+            "poo",
+            "both"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 10466,
+      "response": {
+        "answer": "На прошлой неделе (с 4 по 10 мая 2026) больше всего стула было 8 мая и 10 мая — в эти дни зафиксировано по 2 случая. Остальные дни (4, 5, 6, 7 мая) — по 1 случаю.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT DATE(occurred_at AT TIME ZONE 'Europe/Moscow') AS local_day, COUNT(*) AS count FROM events WHERE type = 'diaper' AND (payload->>'kind') IN ('poo', 'both') AND occurred_at BETWEEN '2026-05-04 00:00:00+03' AND '2026-05-10 23:59:59+03' GROUP BY local_day ORDER BY count DESC LIMIT 7"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "feeding-sessions-total",
+        "category": "feeding",
+        "question": "Сколько всего кормлений было, если грудь и бутылочку в пределах 30 минут считать одним кормлением?",
+        "expected": {
+          "feeding_sessions": 150
+        },
+        "checks": {
+          "numbers": [
+            150
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "feed_breast",
+            "feed_bottle",
+            "30"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 14619,
+      "response": {
+        "answer": "Всего было 150 кормлений, если грудь и бутылочку в пределах 30 минут считать одним кормлением.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "WITH feedings AS (\n  SELECT occurred_at,\n         LAG(occurred_at) OVER (ORDER BY occurred_at) AS prev_at\n  FROM events\n  WHERE type IN ('feed_breast', 'feed_bottle')\n),\nsessions AS (\n  SELECT occurred_at,\n         SUM(CASE WHEN prev_at IS NULL OR occurred_at - prev_at > INTERVAL '30 minutes' THEN 1 ELSE 0 END)\n           OVER (ORDER BY occurred_at) AS session_id\n  FROM feedings\n)\nSELECT COUNT(DISTINCT session_id) AS feeding_count FROM sessions;"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "latest-type-feed_breast",
+        "category": "sources",
+        "question": "Когда в последний раз кормили грудью?",
+        "expected": {
+          "type": "feed_breast",
+          "source_id": "502838ed-0374-42a2-a27e-eb3e52b79ea8"
+        },
+        "checks": {
+          "numbers": [],
+          "sources": [
+            "502838ed-0374-42a2-a27e-eb3e52b79ea8"
+          ],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "id",
+            "feed_breast"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 6605,
+      "response": {
+        "answer": "Последнее кормление грудью было в 21:32:05 по московскому времени (UTC+3).",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT id, occurred_at FROM events WHERE type = 'feed_breast' ORDER BY occurred_at DESC LIMIT 1"
+          ]
+        },
+        "sources": [
+          "502838ed-0374-42a2-a27e-eb3e52b79ea8"
+        ]
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "latest-three-events",
+        "category": "sources",
+        "question": "Покажи последние 3 события в дневнике.",
+        "expected": {
+          "source_ids": [
+            "502838ed-0374-42a2-a27e-eb3e52b79ea8",
+            "11038683-694f-4482-9893-777b794be1af",
+            "bc3b1441-a476-4473-92b5-efc104d16fe1"
+          ]
+        },
+        "checks": {
+          "numbers": [],
+          "sources": [
+            "502838ed-0374-42a2-a27e-eb3e52b79ea8",
+            "11038683-694f-4482-9893-777b794be1af",
+            "bc3b1441-a476-4473-92b5-efc104d16fe1"
+          ],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "id",
+            "ORDER BY"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 9941,
+      "response": {
+        "answer": "Последние 3 события в дневнике:\n1. Кормление грудью (левая сторона) — 21:32:05 (МСК), записано 21:32:05\n2. Подгузник (не определено) — 21:32:03 (МСК), записано 21:32:03\n3. Кормление грудью (правая сторона) — 20:22:00 (МСК), записано 20:22:00",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "SELECT id, occurred_at, type, payload, recorded_at FROM events ORDER BY recorded_at DESC LIMIT 3;"
+          ]
+        },
+        "sources": [
+          "502838ed-0374-42a2-a27e-eb3e52b79ea8",
+          "11038683-694f-4482-9893-777b794be1af",
+          "bc3b1441-a476-4473-92b5-efc104d16fe1"
+        ]
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "inferred-sleep-duration-summary",
+        "category": "sleep",
+        "question": "Сколько всего снов получилось и сколько минут сна суммарно, если считать пробуждением следующую запись после засыпания, а пробуждение без засыпания считать с предыдущей записи?",
+        "expected": {
+          "rule": "sleep_start_to_next_non_sleep_start_or_sleep_end_to_previous_event",
+          "intervals": 153,
+          "minutes": 11003
+        },
+        "checks": {
+          "numbers": [
+            153,
+            11003
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "sleep_start",
+            "sleep_end"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 12476,
+      "response": {
+        "answer": "Всего получилось 153 сна, суммарно ребёнок спал 11003 минуты.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "WITH start_based_sleeps AS (\n  SELECT\n    s.id AS id,\n    s.occurred_at AS started_at,\n    wake.id AS wake_event_id,\n    wake.occurred_at AS woke_at,\n    EXTRACT(EPOCH FROM (wake.occurred_at - s.occurred_at)) / 60.0 AS duration_min\n  FROM events s\n  CROSS JOIN LATERAL (\n    SELECT e.id, e.occurred_at, e.source_event_index\n    FROM events e\n    WHERE (\n        e.occurred_at > s.occurred_at\n        OR (\n          e.occurred_at = s.occurred_at\n          AND e.source_chat_id IS NOT DISTINCT FROM s.source_chat_id\n          AND e.source_message_id IS NOT DISTINCT FROM s.source_message_id\n          AND e.source_event_index > s.source_event_index\n        )\n      )\n      AND e.type <> 'sleep_start'\n    ORDER BY\n      e.occurred_at ASC,\n      CASE WHEN e.occurred_at = s.occurred_at THEN e.source_event_index ELSE 0 END ASC,\n      e.id ASC\n    LIMIT 1\n  ) wake\n  WHERE s.type = 'sleep_start'\n),\nsleep_end_without_start AS (\n  SELECT\n    e.id AS id,\n    previous_event.occurred_at AS started_at,\n    e.id AS wake_event_id,\n    e.occurred_at AS woke_at,\n    EXTRACT(EPOCH FROM (e.occurred_at - previous_event.occurred_at)) / 60.0 AS duration_min\n  FROM events e\n  CROSS JOIN LATERAL (\n    SELECT p.id, p.occurred_at, p.type, p.source_event_index\n    FROM events p\n    WHERE (\n        p.occurred_at < e.occurred_at\n        OR (\n          p.occurred_at = e.occurred_at\n          AND p.source_chat_id IS NOT DISTINCT FROM e.source_chat_id\n          AND p.source_message_id IS NOT DISTINCT FROM e.source_message_id\n          AND p.source_event_index < e.source_event_index\n        )\n      )\n    ORDER BY\n      p.occurred_at DESC,\n      CASE WHEN p.occurred_at = e.occurred_at THEN p.source_event_index ELSE 32767 END DESC,\n      p.id DESC\n    LIMIT 1\n  ) previous_event\n  WHERE e.type = 'sleep_end'\n    AND previous_event.type <> 'sleep_start'\n    AND NOT EXISTS (\n      SELECT 1 FROM start_based_sleeps counted WHERE counted.wake_event_id = e.id\n    )\n),\ninferred_sleeps AS (\n  SELECT id, started_at, wake_event_id, woke_at, duration_min FROM start_based_sleeps\n  UNION ALL\n  SELECT id, started_at, wake_event_id, woke_at, duration_min FROM sleep_end_without_start\n)\nSELECT COUNT(*) AS sleep_count, ROUND(SUM(duration_min))::INTEGER AS total_sleep_minutes\nFROM inferred_sleeps;"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    },
+    {
+      "case": {
+        "id": "sleep-end-without-start-summary",
+        "category": "sleep",
+        "question": "Сколько снов и минут сна добавляется, если для пробуждений без записанного засыпания считать начало сна от предыдущей записи?",
+        "expected": {
+          "rule": "sleep_end_without_paired_sleep_start_to_previous_event",
+          "intervals": 42,
+          "minutes": 3860
+        },
+        "checks": {
+          "numbers": [
+            42,
+            3860
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "sleep_end",
+            "sleep_start"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 12608,
+      "response": {
+        "answer": "Добавлено 153 сна, общая длительность составляет 11003 минуты.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "WITH start_based_sleeps AS (SELECT s.id, s.occurred_at AS started_at, wake.id AS wake_event_id, wake.occurred_at AS woke_at, EXTRACT(EPOCH FROM (wake.occurred_at - s.occurred_at)) / 60.0 AS duration_min FROM events s CROSS JOIN LATERAL (SELECT e.id, e.occurred_at, e.source_event_index FROM events e WHERE (e.occurred_at > s.occurred_at OR (e.occurred_at = s.occurred_at AND e.source_chat_id IS NOT DISTINCT FROM s.source_chat_id AND e.source_message_id IS NOT DISTINCT FROM s.source_message_id AND e.source_event_index > s.source_event_index)) AND e.type <> 'sleep_start' ORDER BY e.occurred_at ASC, CASE WHEN e.occurred_at = s.occurred_at THEN e.source_event_index ELSE 0 END ASC, e.id ASC LIMIT 1) wake WHERE s.type = 'sleep_start'), sleep_end_without_start AS (SELECT e.id, previous_event.occurred_at AS started_at, e.id AS wake_event_id, e.occurred_at AS woke_at, EXTRACT(EPOCH FROM (e.occurred_at - previous_event.occurred_at)) / 60.0 AS duration_min FROM events e CROSS JOIN LATERAL (SELECT p.id, p.occurred_at, p.type, p.source_event_index FROM events p WHERE (p.occurred_at < e.occurred_at OR (p.occurred_at = e.occurred_at AND p.source_chat_id IS NOT DISTINCT FROM e.source_chat_id AND p.source_message_id IS NOT DISTINCT FROM e.source_message_id AND p.source_event_index < e.source_event_index)) ORDER BY p.occurred_at DESC, CASE WHEN p.occurred_at = e.occurred_at THEN p.source_event_index ELSE 32767 END DESC, p.id DESC LIMIT 1) previous_event WHERE e.type = 'sleep_end' AND previous_event.type <> 'sleep_start' AND NOT EXISTS (SELECT 1 FROM start_based_sleeps counted WHERE counted.wake_event_id = e.id)), inferred_sleeps AS (SELECT id, started_at, wake_event_id, woke_at, duration_min FROM start_based_sleeps UNION ALL SELECT id, started_at, wake_event_id, woke_at, duration_min FROM sleep_end_without_start) SELECT COUNT(*) AS sleep_count, ROUND(SUM(duration_min))::INTEGER AS total_sleep_minutes FROM inferred_sleeps;"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": false,
+        "failures": [
+          "answer does not contain expected number 42",
+          "answer does not contain expected number 3860"
+        ]
+      }
+    },
+    {
+      "case": {
+        "id": "average-sleep-minutes-per-day",
+        "category": "sleep_stats",
+        "question": "В среднем сколько минут сна в день получается по дням, где есть записи сна?",
+        "expected": {
+          "average_minutes": 786,
+          "days_with_sleep_data": 14
+        },
+        "checks": {
+          "numbers": [
+            786
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "sleep_start",
+            "AVG"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 28419,
+      "response": {
+        "answer": "Среднее количество минут сна в день, где есть записи сна, составляет **1275 минут**.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 3,
+          "queries": [
+            "WITH inferred_sleeps AS (SELECT id, started_at, wake_event_id, woke_at, duration_min FROM start_based_sleeps UNION ALL SELECT id, started_at, wake_event_id, woke_at, duration_min FROM sleep_end_without_start), daily AS (SELECT DATE(started_at AT TIME ZONE 'Europe/Moscow') AS local_day, SUM(duration_min) AS sleep_minutes FROM inferred_sleeps GROUP BY local_day) SELECT ROUND(AVG(sleep_minutes))::INTEGER AS average_sleep_minutes_per_day FROM daily;",
+            "WITH inferred_sleeps AS (SELECT s.id AS sleep_id, s.occurred_at AS started_at, w.occurred_at AS woke_at, EXTRACT(EPOCH FROM (w.occurred_at - s.occurred_at)) / 60.0 AS duration_min FROM events s CROSS JOIN LATERAL (SELECT e.id, e.occurred_at FROM events e WHERE e.type <> 'sleep_start' AND e.occurred_at > s.occurred_at ORDER BY e.occurred_at ASC LIMIT 1) w WHERE s.type = 'sleep_start' UNION ALL SELECT e.id AS sleep_id, p.occurred_at AS started_at, e.occurred_at AS woke_at, EXTRACT(EPOCH FROM (e.occurred_at - p.occurred_at)) / 60.0 AS duration_min FROM events e CROSS JOIN LATERAL (SELECT p.id, p.occurred_at, p.type FROM events p WHERE p.type <> 'sleep_start' AND p.occurred_at < e.occurred_at ORDER BY p.occurred_at DESC LIMIT 1) p WHERE e.type = 'sleep_end' AND p.type <> 'sleep_start'), daily AS (SELECT DATE(started_at AT TIME ZONE 'Europe/Moscow') AS local_day, SUM(duration_min) AS sleep_minutes FROM inferred_sleeps GROUP BY local_day) SELECT ROUND(AVG(sleep_minutes))::INTEGER AS average_sleep_minutes_per_day FROM daily;"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": false,
+        "failures": [
+          "answer does not contain expected number 786"
+        ]
+      }
+    },
+    {
+      "case": {
+        "id": "average-sleep-minutes-per-month",
+        "category": "sleep_stats",
+        "question": "В среднем сколько минут сна в месяц получается по месяцам, где есть записи сна?",
+        "expected": {
+          "average_minutes": 5501,
+          "months_with_sleep_data": 2
+        },
+        "checks": {
+          "numbers": [
+            5501
+          ],
+          "sources": [],
+          "max_iterations": 5,
+          "requires_sql": true,
+          "query_contains_any": [
+            "sleep_start",
+            "AVG"
+          ]
+        }
+      },
+      "status_code": 200,
+      "latency_ms": 12459,
+      "response": {
+        "answer": "В среднем получается 5501 минута сна в месяц.",
+        "used_window": {
+          "mode": "agentic",
+          "iterations": 2,
+          "queries": [
+            "WITH start_based_sleeps AS (\n  SELECT\n    s.id AS id,\n    s.occurred_at AS started_at,\n    wake.id AS wake_event_id,\n    wake.occurred_at AS woke_at,\n    EXTRACT(EPOCH FROM (wake.occurred_at - s.occurred_at)) / 60.0 AS duration_min\n  FROM events s\n  CROSS JOIN LATERAL (\n    SELECT e.id, e.occurred_at, e.source_event_index\n    FROM events e\n    WHERE (\n        e.occurred_at > s.occurred_at\n        OR (\n          e.occurred_at = s.occurred_at\n          AND e.source_chat_id IS NOT DISTINCT FROM s.source_chat_id\n          AND e.source_message_id IS NOT DISTINCT FROM s.source_message_id\n          AND e.source_event_index > s.source_event_index\n        )\n      )\n      AND e.type <> 'sleep_start'\n    ORDER BY\n      e.occurred_at ASC,\n      CASE WHEN e.occurred_at = s.occurred_at THEN e.source_event_index ELSE 0 END ASC,\n      e.id ASC\n    LIMIT 1\n  ) wake\n  WHERE s.type = 'sleep_start'\n),\nsleep_end_without_start AS (\n  SELECT\n    e.id AS id,\n    previous_event.occurred_at AS started_at,\n    e.id AS wake_event_id,\n    e.occurred_at AS woke_at,\n    EXTRACT(EPOCH FROM (e.occurred_at - previous_event.occurred_at)) / 60.0 AS duration_min\n  FROM events e\n  CROSS JOIN LATERAL (\n    SELECT p.id, p.occurred_at, p.type, p.source_event_index\n    FROM events p\n    WHERE (\n        p.occurred_at < e.occurred_at\n        OR (\n          p.occurred_at = e.occurred_at\n          AND p.source_chat_id IS NOT DISTINCT FROM e.source_chat_id\n          AND p.source_message_id IS NOT DISTINCT FROM e.source_message_id\n          AND p.source_event_index < e.source_event_index\n        )\n      )\n    ORDER BY\n      p.occurred_at DESC,\n      CASE WHEN p.occurred_at = e.occurred_at THEN p.source_event_index ELSE 32767 END DESC,\n      p.id DESC\n    LIMIT 1\n  ) previous_event\n  WHERE e.type = 'sleep_end'\n    AND previous_event.type <> 'sleep_start'\n    AND NOT EXISTS (\n      SELECT 1 FROM start_based_sleeps counted WHERE counted.wake_event_id = e.id\n    )\n),\ninferred_sleeps AS (\n  SELECT id, started_at, wake_event_id, woke_at, duration_min FROM start_based_sleeps\n  UNION ALL\n  SELECT id, started_at, wake_event_id, woke_at, duration_min FROM sleep_end_without_start\n),\nmonthly AS (\n  SELECT DATE_TRUNC('month', started_at AT TIME ZONE 'Europe/Moscow') AS local_month,\n         SUM(duration_min) AS sleep_minutes\n  FROM inferred_sleeps\n  GROUP BY local_month\n)\nSELECT ROUND(AVG(sleep_minutes))::INTEGER AS average_sleep_minutes_per_month\nFROM monthly;"
+          ]
+        },
+        "sources": []
+      },
+      "score": {
+        "passed": true,
+        "failures": []
+      }
+    }
+  ]
+}
