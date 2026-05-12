@@ -234,7 +234,42 @@ def test_generate_cases_adds_latest_day_night_sleep_with_explicit_boundaries() -
 
     cases = ask.generate_cases(events)
     night_case = next(case for case in cases if case['id'] == 'latest-day-night-sleep-with-events')
+    today_case = next(case for case in cases if case['id'] == 'latest-day-sleep-with-events')
     summary_case = next(case for case in cases if case['id'] == 'inferred-sleep-duration-summary')
+
+    assert today_case['expected'] == {
+        'local_day': '2026-05-12',
+        'calculation_interval': ['2026-05-12T00:00:00+03:00', '2026-05-13T00:00:00+03:00'],
+        'minutes': 350,
+        'source_ids': [
+            '00000000-0000-0000-0000-000000000001',
+            '00000000-0000-0000-0000-000000000002',
+            '00000000-0000-0000-0000-000000000003',
+            '00000000-0000-0000-0000-000000000004',
+            '00000000-0000-0000-0000-000000000005',
+            '00000000-0000-0000-0000-000000000006',
+            '00000000-0000-0000-0000-000000000007',
+            '00000000-0000-0000-0000-000000000008',
+            '00000000-0000-0000-0000-000000000009',
+            '00000000-0000-0000-0000-000000000010',
+        ],
+        'rule': 'sleep_minutes_overlapping_local_day_clipped_to_day_bounds',
+    }
+    assert today_case['checks']['numbers'] == [350]
+    assert today_case['checks']['number_tolerance'] == 1
+    assert today_case['checks']['sources'] == today_case['expected']['source_ids']
+    assert today_case['checks']['answer_contains'] == [
+        'Интервал расчёта',
+        '2026-05-12',
+        '2026-05-13',
+    ]
+    assert today_case['checks']['query_contains_all'] == [
+        'sleep_start',
+        'sleep_end',
+        'wake_event_id',
+        'GREATEST',
+        'LEAST',
+    ]
 
     assert night_case['expected'] == {
         'local_day': '2026-05-12',
@@ -471,6 +506,30 @@ def test_score_case_accepts_number_with_configured_tolerance() -> None:
     score = ask.score_case(case, 200, response)
 
     assert score == {'passed': True, 'failures': []}
+
+
+def test_score_case_does_not_match_numbers_inside_uuid_literals() -> None:
+    case = {
+        'checks': {
+            'numbers': [543],
+            'sources': [],
+            'max_iterations': 2,
+            'requires_sql': True,
+            'query_contains_any': [],
+        },
+    }
+    response = {
+        'answer': (
+            'Ребёнок спал 307 минут. '
+            'id: 0ce40543-97a0-45ce-87c0-a6365424586e'
+        ),
+        'used_window': {'iterations': 2, 'queries': ['SELECT 307']},
+        'sources': [],
+    }
+
+    score = ask.score_case(case, 200, response)
+
+    assert score == {'passed': False, 'failures': ['answer does not contain expected number 543']}
 
 
 def test_assert_benchmark_settings_requires_dedicated_db() -> None:

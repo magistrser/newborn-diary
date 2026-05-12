@@ -611,6 +611,11 @@ def _night_window_for_day(local_day: date, timezone: ZoneInfo) -> tuple[datetime
     return start, end
 
 
+def _day_window_for_day(local_day: date, timezone: ZoneInfo) -> tuple[datetime, datetime]:
+    start = datetime.combine(local_day, datetime.min.time(), tzinfo=timezone)
+    return start, start + timedelta(days=1)
+
+
 def _sleep_intervals_started_in_window(
     intervals: Iterable[dict[str, Any]],
     timezone: ZoneInfo,
@@ -622,6 +627,27 @@ def _sleep_intervals_started_in_window(
         for interval in intervals
         if start <= _parse_datetime(interval['started_at']).astimezone(timezone) < end
     ]
+
+
+def _sleep_intervals_overlapping_window(
+    intervals: Iterable[dict[str, Any]],
+    start: datetime,
+    end: datetime,
+) -> list[dict[str, Any]]:
+    overlapping = []
+    for interval in intervals:
+        started_at = _parse_datetime(interval['started_at'])
+        woke_at = _parse_datetime(interval['woke_at'])
+        overlap_started_at = max(started_at, start)
+        overlap_woke_at = min(woke_at, end)
+        if overlap_started_at >= overlap_woke_at:
+            continue
+        overlapping.append(interval | {
+            'overlap_started_at': _format_datetime(overlap_started_at),
+            'overlap_woke_at': _format_datetime(overlap_woke_at),
+            'overlap_duration_min': (overlap_woke_at - overlap_started_at).total_seconds() / 60.0,
+        })
+    return overlapping
 
 
 def _source_ids_for_intervals(intervals: Iterable[dict[str, Any]]) -> list[str]:
@@ -890,6 +916,43 @@ def generate_cases(
     inferred_sleep_intervals = _sleep_duration_intervals(events)
     inferred_sleep_count, inferred_sleep_minutes = _inferred_sleep_summary(events)
     if inferred_sleep_count:
+        day_start, day_end = _day_window_for_day(latest_day, timezone)
+        latest_day_sleep_intervals = _sleep_intervals_overlapping_window(
+            inferred_sleep_intervals,
+            day_start,
+            day_end,
+        )
+        latest_day_sleep_minutes = round(
+            sum(interval['overlap_duration_min'] for interval in latest_day_sleep_intervals)
+        )
+        latest_day_sleep_sources = _source_ids_for_intervals(latest_day_sleep_intervals)
+        if latest_day_sleep_intervals:
+            cases.append(_case(
+                'latest-day-sleep-with-events',
+                'sleep',
+                'Сколько ребёнок спал сегодня? Покажи события, с помощью которых считал.',
+                numbers=[latest_day_sleep_minutes],
+                number_tolerance=1,
+                sources=latest_day_sleep_sources,
+                answer_contains=[
+                    'Интервал расчёта',
+                    latest_day.isoformat(),
+                    day_end.date().isoformat(),
+                ],
+                query_contains_any=[latest_day.isoformat(), 'AT TIME ZONE', '+03'],
+                query_contains_all=['sleep_start', 'sleep_end', 'wake_event_id', 'GREATEST', 'LEAST'],
+                expected={
+                    'local_day': latest_day.isoformat(),
+                    'calculation_interval': [
+                        day_start.isoformat(),
+                        day_end.isoformat(),
+                    ],
+                    'minutes': latest_day_sleep_minutes,
+                    'source_ids': latest_day_sleep_sources,
+                    'rule': 'sleep_minutes_overlapping_local_day_clipped_to_day_bounds',
+                },
+            ))
+
         night_start, night_end = _night_window_for_day(latest_day, timezone)
         latest_night_intervals = _sleep_intervals_started_in_window(
             inferred_sleep_intervals,
@@ -1150,13 +1213,22 @@ def _normalize_number_separators(answer: str) -> str:
     return re.sub(r'(?<=\d)[\s\u00a0\u202f](?=\d)', '', answer)
 
 
+def _strip_uuid_literals(answer: str) -> str:
+    return re.sub(
+        r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b',
+        ' ',
+        answer,
+        flags=re.IGNORECASE,
+    )
+
+
 def _answer_numbers(answer: str) -> list[int]:
-    answer = _normalize_number_separators(answer)
+    answer = _normalize_number_separators(_strip_uuid_literals(answer))
     return [int(match) for match in re.findall(r'(?<![\d.,])-?\d+(?![\d.,])', answer)]
 
 
 def _answer_contains_expected_number(answer: str, answer_numbers: list[int], number: int) -> bool:
-    normalized_answer = _normalize_number_separators(answer)
+    normalized_answer = _normalize_number_separators(_strip_uuid_literals(answer))
     if number in answer_numbers or str(number) in normalized_answer:
         return True
     if number == 0:

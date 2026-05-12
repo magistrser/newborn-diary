@@ -14,7 +14,16 @@ def test_sql_prompt_uses_local_today_for_relative_dates() -> None:
     assert 'Текущее локальное время пользователя (Europe/Moscow): 2026-05-11T01:00:00+03:00' in prompt
     assert 'Сегодня по календарю пользователя: 2026-05-11' in prompt
     assert "Для \"сегодня\" используй локальную дату 2026-05-11" in prompt
+    assert 'в итоговом ответе явно укажи строку `Интервал расчёта: ...`' in prompt
+    assert 'перечисли каждую группу с её числом' in prompt
     assert "WHERE DATE(occurred_at AT TIME ZONE 'Europe/Moscow') = '2026-05-11'" in prompt
+    assert 'Не используй границы `+00` или литералы вида `T00:00:00+00`' in prompt
+    assert 'среднее за неделю = сумма за 7 локальных дней / 7' in prompt
+    assert (
+        "WHERE DATE(occurred_at AT TIME ZONE 'Europe/Moscow') "
+        "BETWEEN '2026-05-11' AND '2026-05-17'"
+    ) in prompt
+    assert "AND occurred_at <  '2026-05-18 00:00:00+03'" in prompt
     assert "Если используешь явные границы с `+03`, не добавляй к ним `AT TIME ZONE`" in prompt
     assert "WHERE occurred_at >= '2026-04-28 00:00:00+03' AT TIME ZONE 'Europe/Moscow'" in prompt
 
@@ -88,8 +97,19 @@ def test_sql_prompt_describes_inferred_sleep_duration_rule() -> None:
     assert 'только про такие дополнительные `sleep_end` без записанного засыпания' in prompt
     assert 'Если пользователь спрашивает "сегодня ночью" или "сегодняшней ночью"' in prompt
     assert 'с 20:00 предыдущего календарного дня до 06:00 сегодняшнего дня' in prompt
+    assert 'Если пользователь спрашивает "сегодня" про длительность сна без слова "ночью"' in prompt
+    assert '`GREATEST(started_at, day_start)` и `LEAST(woke_at, day_end)`' in prompt
+    assert 'сон, пересекающий сегодня, может начаться вчера' in prompt
+    assert 'Не используй `ARRAY_AGG`, `JSON_AGG` или `ROW(...)`' in prompt
+    assert 'Верни одну строку на каждый интервал из `today_sleeps`' in prompt
     assert 'Не агрегируй использованные события в JSON/array' in prompt
     assert "WHERE started_at >= '2026-05-11 20:00:00+03'" in prompt
     assert "AND started_at <  '2026-05-12 06:00:00+03'" in prompt
+    assert 'day_bounds AS' in prompt
+    assert "'2026-05-11 00:00:00+03'::timestamptz AS day_start" in prompt
+    assert "'2026-05-12 00:00:00+03'::timestamptz AS day_end" in prompt
+    assert 'GREATEST(i.started_at, b.day_start) AS started_at' in prompt
+    assert 'LEAST(i.woke_at, b.day_end) AS woke_at' in prompt
+    assert 'Интервал расчёта: 2026-05-11 00:00+03 — 2026-05-12 00:00+03' in prompt
     assert 'Для среднего сна в день сначала получи `inferred_sleeps` через полный базовый CTE выше' in prompt
     assert 'average_sleep_minutes_per_month' in prompt

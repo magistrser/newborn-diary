@@ -4,11 +4,11 @@
     "category": "counts",
     "question": "Сколько всего записей в дневнике?",
     "expected": {
-      "total_events": 592
+      "total_events": 605
     },
     "checks": {
       "numbers": [
-        592
+        605
       ],
       "sources": [],
       "answer_contains": [],
@@ -26,12 +26,12 @@
     "question": "Сколько раз кормили грудью за всё время?",
     "expected": {
       "type": "feed_breast",
-      "count": 147,
+      "count": 151,
       "unit": "sessions"
     },
     "checks": {
       "numbers": [
-        147
+        151
       ],
       "sources": [],
       "answer_contains": [],
@@ -80,11 +80,11 @@
         "2026-05-11",
         "2026-05-17"
       ],
-      "total_events": 56
+      "total_events": 69
     },
     "checks": {
       "numbers": [
-        56
+        69
       ],
       "sources": [],
       "answer_contains": [],
@@ -112,7 +112,7 @@
       ],
       "day_counts": {
         "2026-05-11": 41,
-        "2026-05-12": 15,
+        "2026-05-12": 28,
         "2026-05-13": 0,
         "2026-05-14": 0,
         "2026-05-15": 0,
@@ -123,7 +123,7 @@
     "checks": {
       "numbers": [
         41,
-        15,
+        28,
         0,
         0,
         0,
@@ -154,12 +154,12 @@
         "2026-05-11",
         "2026-05-17"
       ],
-      "average_events_per_day": 8,
+      "average_events_per_day": 10,
       "days": 7
     },
     "checks": {
       "numbers": [
-        8
+        10
       ],
       "sources": [],
       "answer_contains": [],
@@ -275,11 +275,11 @@
     "category": "feeding",
     "question": "Сколько всего кормлений было, если грудь и бутылочку в пределах 30 минут считать одним кормлением?",
     "expected": {
-      "feeding_sessions": 154
+      "feeding_sessions": 158
     },
     "checks": {
       "numbers": [
-        154
+        158
       ],
       "sources": [],
       "answer_contains": [],
@@ -301,12 +301,12 @@
     "question": "Когда в последний раз кормили грудью?",
     "expected": {
       "type": "feed_breast",
-      "source_id": "cdca5a5f-7294-4755-97fd-f34630845dae"
+      "source_id": "626e8649-9207-4175-b8c7-108e082894d6"
     },
     "checks": {
       "numbers": [],
       "sources": [
-        "cdca5a5f-7294-4755-97fd-f34630845dae"
+        "626e8649-9207-4175-b8c7-108e082894d6"
       ],
       "answer_contains": [],
       "answer_contains_any": [],
@@ -326,17 +326,17 @@
     "question": "Покажи последние 3 события в дневнике.",
     "expected": {
       "source_ids": [
-        "0b88e445-0545-8ab0-44cc-249cf10a25b3",
-        "3087adc7-80fa-4bfb-bc2d-28a69e91f501",
-        "cdca5a5f-7294-4755-97fd-f34630845dae"
+        "626e8649-9207-4175-b8c7-108e082894d6",
+        "c7858776-a0d6-4458-90eb-b5d6d1d57c06",
+        "de7c2f67-94b1-0c2a-59e4-8adafed10249"
       ]
     },
     "checks": {
       "numbers": [],
       "sources": [
-        "0b88e445-0545-8ab0-44cc-249cf10a25b3",
-        "3087adc7-80fa-4bfb-bc2d-28a69e91f501",
-        "cdca5a5f-7294-4755-97fd-f34630845dae"
+        "626e8649-9207-4175-b8c7-108e082894d6",
+        "c7858776-a0d6-4458-90eb-b5d6d1d57c06",
+        "de7c2f67-94b1-0c2a-59e4-8adafed10249"
       ],
       "answer_contains": [],
       "answer_contains_any": [],
@@ -348,6 +348,82 @@
         "ORDER BY"
       ],
       "query_contains_all": []
+    }
+  },
+  {
+    "id": "latest-day-sleep-with-events",
+    "category": "sleep",
+    "question": "Сколько ребёнок спал сегодня? Покажи события, с помощью которых считал.",
+    "expected": {
+      "local_day": "2026-05-12",
+      "calculation_interval": [
+        "2026-05-12T00:00:00+03:00",
+        "2026-05-13T00:00:00+03:00"
+      ],
+      "minutes": 543,
+      "source_ids": [
+        "e52e1647-1285-42a4-baad-29833d681539",
+        "ce83e5d1-ed39-41b7-1efe-a539887300c9",
+        "4a678143-be91-4bfe-add6-9ee2c313894d",
+        "6b7712d7-684b-afcc-c417-7ecf80d07f32",
+        "ce7726e9-f84c-4b71-af04-1d60debe6cd3",
+        "22e9959c-0cef-4f54-8664-5950ad1e36a2",
+        "273bc7fa-4698-42f3-bbdb-9d1be925f8f8",
+        "bd1d7bd2-b370-4fa9-b0b2-4357269fa22b",
+        "3087adc7-80fa-4bfb-bc2d-28a69e91f501",
+        "0b88e445-0545-8ab0-44cc-249cf10a25b3",
+        "a6681baf-43c6-462d-97b0-e76103442243",
+        "44636017-84f4-49a1-85b0-f5afe0bc59d5",
+        "1cee0ca1-18be-45b9-a06a-19ed9d6f31f5",
+        "0a623c47-ce6a-448e-bb81-766a6dfdf2af",
+        "0ce40543-97a0-45ce-87c0-a6365424586e",
+        "de7c2f67-94b1-0c2a-59e4-8adafed10249"
+      ],
+      "rule": "sleep_minutes_overlapping_local_day_clipped_to_day_bounds"
+    },
+    "checks": {
+      "numbers": [
+        543
+      ],
+      "sources": [
+        "e52e1647-1285-42a4-baad-29833d681539",
+        "ce83e5d1-ed39-41b7-1efe-a539887300c9",
+        "4a678143-be91-4bfe-add6-9ee2c313894d",
+        "6b7712d7-684b-afcc-c417-7ecf80d07f32",
+        "ce7726e9-f84c-4b71-af04-1d60debe6cd3",
+        "22e9959c-0cef-4f54-8664-5950ad1e36a2",
+        "273bc7fa-4698-42f3-bbdb-9d1be925f8f8",
+        "bd1d7bd2-b370-4fa9-b0b2-4357269fa22b",
+        "3087adc7-80fa-4bfb-bc2d-28a69e91f501",
+        "0b88e445-0545-8ab0-44cc-249cf10a25b3",
+        "a6681baf-43c6-462d-97b0-e76103442243",
+        "44636017-84f4-49a1-85b0-f5afe0bc59d5",
+        "1cee0ca1-18be-45b9-a06a-19ed9d6f31f5",
+        "0a623c47-ce6a-448e-bb81-766a6dfdf2af",
+        "0ce40543-97a0-45ce-87c0-a6365424586e",
+        "de7c2f67-94b1-0c2a-59e4-8adafed10249"
+      ],
+      "answer_contains": [
+        "Интервал расчёта",
+        "2026-05-12",
+        "2026-05-13"
+      ],
+      "answer_contains_any": [],
+      "number_tolerance": 1,
+      "max_iterations": 5,
+      "requires_sql": true,
+      "query_contains_any": [
+        "2026-05-12",
+        "AT TIME ZONE",
+        "+03"
+      ],
+      "query_contains_all": [
+        "sleep_start",
+        "sleep_end",
+        "wake_event_id",
+        "GREATEST",
+        "LEAST"
+      ]
     }
   },
   {
@@ -409,13 +485,13 @@
     "question": "Сколько всего снов получилось и сколько минут сна суммарно, если учитывать записанные интервалы сна, сон от засыпания до следующей записи, а пробуждения без записанного засыпания — от предыдущей не-заметки?",
     "expected": {
       "rule": "prompt_inferred_sleep",
-      "intervals": 161,
-      "minutes": 11830
+      "intervals": 164,
+      "minutes": 12023
     },
     "checks": {
       "numbers": [
-        161,
-        11830
+        164,
+        12023
       ],
       "sources": [],
       "answer_contains": [],
@@ -435,12 +511,12 @@
     "category": "sleep_stats",
     "question": "В среднем сколько минут сна в день получается по дням, где есть записи сна?",
     "expected": {
-      "average_minutes": 789,
+      "average_minutes": 802,
       "days_with_sleep_data": 15
     },
     "checks": {
       "numbers": [
-        789
+        802
       ],
       "sources": [],
       "answer_contains": [],
@@ -460,12 +536,12 @@
     "category": "sleep_stats",
     "question": "В среднем сколько минут сна в месяц получается по месяцам, где есть записи сна?",
     "expected": {
-      "average_minutes": 5915,
+      "average_minutes": 6011,
       "months_with_sleep_data": 2
     },
     "checks": {
       "numbers": [
-        5915
+        6011
       ],
       "sources": [],
       "answer_contains": [],

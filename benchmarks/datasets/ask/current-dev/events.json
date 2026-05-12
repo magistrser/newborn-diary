@@ -8557,5 +8557,191 @@
     "source_chat_id": -1003551397696,
     "source_event_index": 1,
     "parser_version": "llm-v1"
+  },
+  {
+    "id": "92bd34da-6d44-4615-a646-c82d27b7629c",
+    "occurred_at": "2026-05-12T06:48:45Z",
+    "recorded_at": "2026-05-12T06:48:45.674242Z",
+    "type": "diaper",
+    "payload": {
+      "kind": "unknown"
+    },
+    "raw_text": "Подгузник \nПравая",
+    "source_type": "telegram_live",
+    "source_message_id": "730",
+    "source_chat_id": -1003551397696,
+    "source_event_index": 0,
+    "parser_version": "llm-v1"
+  },
+  {
+    "id": "7ce8cfcd-3d09-4a28-8ef0-bbf281eb67e3",
+    "occurred_at": "2026-05-12T06:48:45Z",
+    "recorded_at": "2026-05-12T06:48:45.674242Z",
+    "type": "feed_breast",
+    "payload": {
+      "side": "right"
+    },
+    "raw_text": "Подгузник \nПравая",
+    "source_type": "telegram_live",
+    "source_message_id": "730",
+    "source_chat_id": -1003551397696,
+    "source_event_index": 1,
+    "parser_version": "llm-v1"
+  },
+  {
+    "id": "a6681baf-43c6-462d-97b0-e76103442243",
+    "occurred_at": "2026-05-12T06:48:48Z",
+    "recorded_at": "2026-05-12T06:48:48.156319Z",
+    "type": "sleep_start",
+    "payload": {},
+    "raw_text": "Заснул",
+    "source_type": "telegram_live",
+    "source_message_id": "731",
+    "source_chat_id": -1003551397696,
+    "source_event_index": 0,
+    "parser_version": "llm-v1"
+  },
+  {
+    "id": "44636017-84f4-49a1-85b0-f5afe0bc59d5",
+    "occurred_at": "2026-05-12T08:14:59Z",
+    "recorded_at": "2026-05-12T08:15:00.243082Z",
+    "type": "sleep_end",
+    "payload": {},
+    "raw_text": "Встал",
+    "source_type": "telegram_live",
+    "source_message_id": "734",
+    "source_chat_id": -1003551397696,
+    "source_event_index": 0,
+    "parser_version": "llm-v1"
+  },
+  {
+    "id": "fdb2c220-b8b1-4445-80d2-21deaff46368",
+    "occurred_at": "2026-05-12T08:15:37Z",
+    "recorded_at": "2026-05-12T08:15:37.255656Z",
+    "type": "feed_breast",
+    "payload": {
+      "side": "left"
+    },
+    "raw_text": "Левая",
+    "source_type": "telegram_live",
+    "source_message_id": "736",
+    "source_chat_id": -1003551397696,
+    "source_event_index": 0,
+    "parser_version": "llm-v1"
+  },
+  {
+    "id": "1cee0ca1-18be-45b9-a06a-19ed9d6f31f5",
+    "occurred_at": "2026-05-12T08:56:13Z",
+    "recorded_at": "2026-05-12T08:56:13.343523Z",
+    "type": "sleep_start",
+    "payload": {},
+    "raw_text": "Заснул",
+    "source_type": "telegram_live",
+    "source_message_id": "738",
+    "source_chat_id": -1003551397696,
+    "source_event_index": 0,
+    "parser_version": "llm-v1"
+  },
+  {
+    "id": "0a623c47-ce6a-448e-bb81-766a6dfdf2af",
+    "occurred_at": "2026-05-12T09:03:00Z",
+    "recorded_at": "2026-05-12T09:03:00.924603Z",
+    "type": "sleep_end",
+    "payload": {},
+    "raw_text": "Встал",
+    "source_type": "telegram_live",
+    "source_message_id": "740",
+    "source_chat_id": -1003551397696,
+    "source_event_index": 0,
+    "parser_version": "llm-v1"
+  },
+  {
+    "id": "86e483db-746c-4575-9919-f5cbdc3d30d1",
+    "occurred_at": "2026-05-12T09:28:24Z",
+    "recorded_at": "2026-05-12T09:28:24.735082Z",
+    "type": "medication",
+    "payload": {
+      "name": "Лактазар"
+    },
+    "raw_text": "Лактазар\nПравая",
+    "source_type": "telegram_live",
+    "source_message_id": "742",
+    "source_chat_id": -1003551397696,
+    "source_event_index": 0,
+    "parser_version": "llm-v1"
+  },
+  {
+    "id": "4e15d7e6-bebf-45d5-866d-7c18ebff921c",
+    "occurred_at": "2026-05-12T09:28:24Z",
+    "recorded_at": "2026-05-12T09:28:24.735082Z",
+    "type": "feed_breast",
+    "payload": {
+      "side": "right"
+    },
+    "raw_text": "Лактазар\nПравая",
+    "source_type": "telegram_live",
+    "source_message_id": "742",
+    "source_chat_id": -1003551397696,
+    "source_event_index": 1,
+    "parser_version": "llm-v1"
+  },
+  {
+    "id": "0ce40543-97a0-45ce-87c0-a6365424586e",
+    "occurred_at": "2026-05-12T10:00:00Z",
+    "recorded_at": "2026-05-12T12:00:21.786388Z",
+    "type": "sleep_start",
+    "payload": {},
+    "raw_text": "13:00 - 14:40 сон",
+    "source_type": "telegram_live",
+    "source_message_id": "747",
+    "source_chat_id": -1003551397696,
+    "source_event_index": 0,
+    "parser_version": "llm-v1"
+  },
+  {
+    "id": "de7c2f67-94b1-0c2a-59e4-8adafed10249",
+    "occurred_at": "2026-05-12T11:40:00Z",
+    "recorded_at": "2026-05-12T12:00:21.786388Z",
+    "type": "sleep_end",
+    "payload": {
+      "duration_min": 100,
+      "sleep_start_id": "0ce40543-97a0-45ce-87c0-a6365424586e"
+    },
+    "raw_text": "13:00 - 14:40 сон",
+    "source_type": "telegram_live",
+    "source_message_id": "747",
+    "source_chat_id": -1003551397696,
+    "source_event_index": 1,
+    "parser_version": "llm-v1"
+  },
+  {
+    "id": "c7858776-a0d6-4458-90eb-b5d6d1d57c06",
+    "occurred_at": "2026-05-12T12:04:00Z",
+    "recorded_at": "2026-05-12T12:04:00.080116Z",
+    "type": "diaper",
+    "payload": {
+      "kind": "unknown"
+    },
+    "raw_text": "Подгузник",
+    "source_type": "telegram_live",
+    "source_message_id": "749",
+    "source_chat_id": -1003551397696,
+    "source_event_index": 0,
+    "parser_version": "llm-v1"
+  },
+  {
+    "id": "626e8649-9207-4175-b8c7-108e082894d6",
+    "occurred_at": "2026-05-12T12:13:02Z",
+    "recorded_at": "2026-05-12T12:13:01.998810Z",
+    "type": "feed_breast",
+    "payload": {
+      "side": "left"
+    },
+    "raw_text": "Левая",
+    "source_type": "telegram_live",
+    "source_message_id": "751",
+    "source_chat_id": -1003551397696,
+    "source_event_index": 0,
+    "parser_version": "llm-v1"
   }
 ]

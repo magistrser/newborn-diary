@@ -1,5 +1,5 @@
 import types as _types
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Union, get_args, get_origin
 from zoneinfo import ZoneInfo
@@ -96,6 +96,8 @@ def _describe_payload(payload_cls: type[BaseModel]) -> str:
 def build_sql_system_prompt(now: datetime, tz: str, row_cap: int, statement_timeout_ms: int) -> str:
     type_list = ', '.join(t.value for t in EventType)
     local_now = now.astimezone(ZoneInfo(tz))
+    local_today = local_now.date()
+    local_tomorrow = local_today + timedelta(days=1)
 
     payload_sections = []
     for event_type, payload_cls in _PAYLOAD_BY_TYPE.items():
@@ -147,6 +149,10 @@ CREATE TABLE events (
 - Если запрос вернул ошибку — исправь SQL и повтори.
 - Когда перечисляешь конкретные события или отвечаешь про последнее/первое конкретное событие —
   обязательно включай колонку `id` (UUID) в SELECT.
+- Если вопрос ограничен датой или периодом ("сегодня", "вчера", "за неделю", "с ... по ..."),
+  в итоговом ответе явно укажи строку `Интервал расчёта: ...` с локальными границами периода.
+- Не пропускай числовые значения из результата запроса. Если запрос вернул статистику по дням,
+  типам или другим группам, перечисли каждую группу с её числом, а не только общий вывод словами.
 - После получения данных — дай итоговый ответ на языке вопроса.
 - Отвечай простым текстом без Markdown-разметки, таблиц, HTML-тегов и служебных токенов.
 
@@ -193,6 +199,11 @@ WHERE DATE(occurred_at AT TIME ZONE '{tz}') = '{local_now.date().isoformat()}'
 Когда пользователь спрашивает о событиях "за X число" или "X апреля" и т.п. —
 ВСЕГДА фильтруй по московскому календарному дню, не по UTC.
 
+Когда пользователь спрашивает диапазон дат, например "с 11 мая по 17 мая", обе даты включены
+как локальные календарные дни. Не используй границы `+00` или литералы вида `T00:00:00+00`
+для таких вопросов. Для полной недели считай все 7 локальных дней, включая дни с нулём записей;
+среднее за неделю = сумма за 7 локальных дней / 7, а не среднее только по дням, где есть записи.
+
 ПРАВИЛЬНО (один из двух вариантов):
 ```sql
 -- Вариант 1: через приведение к московскому времени
@@ -201,6 +212,15 @@ WHERE DATE(occurred_at AT TIME ZONE '{tz}') = '2026-04-28'
 -- Вариант 2: явные границы с часовым поясом +03
 WHERE occurred_at >= '2026-04-28 00:00:00+03'
   AND occurred_at <  '2026-04-29 00:00:00+03'
+```
+
+ПРАВИЛЬНО для диапазона с 2026-05-11 по 2026-05-17 включительно:
+```sql
+WHERE DATE(occurred_at AT TIME ZONE '{tz}') BETWEEN '2026-05-11' AND '2026-05-17'
+
+-- или через явные локальные границы, где конец — следующий день после последней даты
+WHERE occurred_at >= '2026-05-11 00:00:00+03'
+  AND occurred_at <  '2026-05-18 00:00:00+03'
 ```
 
 Если используешь явные границы с `+03`, не добавляй к ним `AT TIME ZONE`:
@@ -272,6 +292,16 @@ SELECT COUNT(DISTINCT session_id) AS feeding_count FROM sessions;
 Если пользователь спрашивает "сегодня ночью" или "сегодняшней ночью", считай ночной сон,
 относящийся к сегодняшней локальной дате: с 20:00 предыдущего календарного дня до 06:00 сегодняшнего дня
 в часовом поясе пользователя. Фильтруй уже построенные интервалы сна по `started_at`.
+Если пользователь спрашивает "сегодня" про длительность сна без слова "ночью", считай весь локальный
+календарный день: от 00:00 сегодняшней даты до 00:00 следующей даты в часовом поясе пользователя.
+Для таких вопросов считай только минуты пересечения сна с этим днём: обрезай каждый интервал через
+`GREATEST(started_at, day_start)` и `LEAST(woke_at, day_end)`, а затем оставляй только строки,
+где обрезанное начало меньше обрезанного конца.
+Если пользователь просит "покажи события" для сна за сегодня, не делай отдельный запрос к `events`
+по дате события после расчёта интервалов: сон, пересекающий сегодня, может начаться вчера, но его
+`id` всё равно должен попасть в источники. Не используй `ARRAY_AGG`, `JSON_AGG` или `ROW(...)`
+для списка интервалов. Верни одну строку на каждый интервал из `today_sleeps`, а итоговую сумму
+посчитай по этим строкам.
 Если пользователь просит показать события, включай id всех использованных событий:
 для сна от `sleep_start` до пробуждения — id начала и `wake_event_id`.
 Не агрегируй использованные события в JSON/array для таких вопросов: верни строки интервалов с колонками
@@ -423,6 +453,36 @@ SELECT id, wake_event_id, started_at, woke_at, ROUND(duration_min)::INTEGER AS m
 FROM night_sleeps
 ORDER BY started_at ASC;
 ```
+
+Для "сегодня" про длительность сна после полного CTE выше добавь локальные границы дня, обрежь
+пересекающиеся интервалы и возвращай строки, если пользователь просит показать события:
+
+```sql
+day_bounds AS (
+  SELECT
+    '{local_today.isoformat()} 00:00:00+03'::timestamptz AS day_start,
+    '{local_tomorrow.isoformat()} 00:00:00+03'::timestamptz AS day_end
+),
+today_sleeps AS (
+  SELECT
+    i.id,
+    i.wake_event_id,
+    GREATEST(i.started_at, b.day_start) AS started_at,
+    LEAST(i.woke_at, b.day_end) AS woke_at,
+    EXTRACT(EPOCH FROM (
+      LEAST(i.woke_at, b.day_end) - GREATEST(i.started_at, b.day_start)
+    )) / 60.0 AS duration_min
+  FROM inferred_sleeps i
+  CROSS JOIN day_bounds b
+  WHERE GREATEST(i.started_at, b.day_start) < LEAST(i.woke_at, b.day_end)
+)
+SELECT id, wake_event_id, started_at, woke_at, ROUND(duration_min)::INTEGER AS minutes
+FROM today_sleeps
+ORDER BY started_at ASC;
+```
+
+В итоговом ответе для такого вопроса укажи:
+`Интервал расчёта: {local_today.isoformat()} 00:00+03 — {local_tomorrow.isoformat()} 00:00+03`.
 
 Для среднего сна в день сначала получи `inferred_sleeps` через полный базовый CTE выше.
 Затем суммируй сон по локальным дням начала сна и только потом бери AVG:
