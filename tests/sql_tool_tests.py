@@ -1,6 +1,6 @@
 import pytest
 
-from application.services.sql_tool import SqlValidationError, validate_select
+from application.services.sql_tool import SqlValidationError, extract_uuid_ids, validate_select
 
 
 # ── Accepted queries ──────────────────────────────────────────────────────────
@@ -47,6 +47,25 @@ def test_returns_normalized_sql() -> None:
     sql = "  SELECT 1  "
     result = validate_select(sql)
     assert result.strip() == "SELECT 1"
+
+
+def test_extract_uuid_ids_accepts_aliased_event_id_columns() -> None:
+    result = {
+        'columns': ['id', 'wake_event_id', 'source_message_id', 'event_count'],
+        'rows': [
+            [
+                '00000000-0000-0000-0000-000000000001',
+                '00000000-0000-0000-0000-000000000002',
+                'telegram-42',
+                2,
+            ],
+        ],
+    }
+
+    assert [str(source_id) for source_id in extract_uuid_ids(result)] == [
+        '00000000-0000-0000-0000-000000000001',
+        '00000000-0000-0000-0000-000000000002',
+    ]
 
 
 # ── Rejected queries ──────────────────────────────────────────────────────────

@@ -268,6 +268,7 @@ def _case(
     sources: Sequence[str] = (),
     answer_contains: Sequence[str] = (),
     answer_contains_any: Sequence[str] = (),
+    number_tolerance: int = 0,
     max_iterations: int = 5,
     requires_sql: bool = True,
     query_contains_any: Sequence[str] = (),
@@ -284,6 +285,7 @@ def _case(
             'sources': list(sources),
             'answer_contains': list(answer_contains),
             'answer_contains_any': list(answer_contains_any),
+            'number_tolerance': number_tolerance,
             'max_iterations': max_iterations,
             'requires_sql': requires_sql,
             'query_contains_any': list(query_contains_any),
@@ -395,6 +397,32 @@ def _sleep_interval_summary(events: list[dict[str, Any]]) -> tuple[int, int]:
     return count, total_minutes
 
 
+def _explicit_sleep_intervals(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    intervals = []
+    for event in events:
+        if event['type'] != 'sleep_interval':
+            continue
+        payload = event.get('payload') or {}
+        started_at = payload.get('started_at')
+        ended_at = payload.get('ended_at')
+        if not started_at or not ended_at:
+            continue
+        started = _parse_datetime(started_at)
+        ended = _parse_datetime(ended_at)
+        duration_min = (ended - started).total_seconds() / 60.0
+        if duration_min >= 0:
+            intervals.append({
+                'id': event['id'],
+                'source_ids': [event['id']],
+                'started_at': _format_datetime(started),
+                'wake_event_id': event['id'],
+                'woke_at': _format_datetime(ended),
+                'duration_min': duration_min,
+                'wake_event_type': event['type'],
+            })
+    return intervals
+
+
 def _inferred_sleep_intervals(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     intervals = []
     used_wake_event_ids: set[str] = set()
@@ -425,6 +453,7 @@ def _inferred_sleep_intervals(events: list[dict[str, Any]]) -> list[dict[str, An
             used_wake_event_ids.add(wake_event['id'])
             intervals.append({
                 'id': event['id'],
+                'source_ids': [event['id'], wake_event['id']],
                 'started_at': event['occurred_at'],
                 'wake_event_id': wake_event['id'],
                 'woke_at': wake_event['occurred_at'],
@@ -458,6 +487,7 @@ def _inferred_sleep_intervals(events: list[dict[str, Any]]) -> list[dict[str, An
         if duration_min >= 0:
             intervals.append({
                 'id': event['id'],
+                'source_ids': [previous_event['id'], event['id']],
                 'started_at': previous_event['occurred_at'],
                 'wake_event_id': event['id'],
                 'woke_at': event['occurred_at'],
@@ -493,8 +523,28 @@ def _is_before_event(candidate: dict[str, Any], event: dict[str, Any]) -> bool:
     )
 
 
+def _intervals_overlap(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    return (
+        _parse_datetime(left['started_at']) < _parse_datetime(right['woke_at'])
+        and _parse_datetime(left['woke_at']) > _parse_datetime(right['started_at'])
+    )
+
+
+def _sleep_duration_intervals(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    explicit_intervals = _explicit_sleep_intervals(events)
+    inferred_intervals = [
+        interval
+        for interval in _inferred_sleep_intervals(events)
+        if not any(_intervals_overlap(interval, explicit) for explicit in explicit_intervals)
+    ]
+    return sorted(
+        [*explicit_intervals, *inferred_intervals],
+        key=lambda interval: (_parse_datetime(interval['started_at']), interval['id']),
+    )
+
+
 def _inferred_sleep_summary(events: list[dict[str, Any]]) -> tuple[int, int]:
-    intervals = _inferred_sleep_intervals(events)
+    intervals = _sleep_duration_intervals(events)
     return len(intervals), round(sum(interval['duration_min'] for interval in intervals))
 
 
@@ -557,6 +607,36 @@ def _first_event_with_raw_text_time_mismatch(
         if local_time not in raw_times:
             return event, local_time, raw_times[0]
     return None
+
+
+def _night_window_for_day(local_day: date, timezone: ZoneInfo) -> tuple[datetime, datetime]:
+    start = datetime.combine(local_day - timedelta(days=1), datetime.min.time(), tzinfo=timezone) + timedelta(hours=20)
+    end = datetime.combine(local_day, datetime.min.time(), tzinfo=timezone) + timedelta(hours=6)
+    return start, end
+
+
+def _sleep_intervals_started_in_window(
+    intervals: Iterable[dict[str, Any]],
+    timezone: ZoneInfo,
+    start: datetime,
+    end: datetime,
+) -> list[dict[str, Any]]:
+    return [
+        interval
+        for interval in intervals
+        if start <= _parse_datetime(interval['started_at']).astimezone(timezone) < end
+    ]
+
+
+def _source_ids_for_intervals(intervals: Iterable[dict[str, Any]]) -> list[str]:
+    source_ids = []
+    seen = set()
+    for interval in intervals:
+        for source_id in interval.get('source_ids') or [interval['id']]:
+            if source_id not in seen:
+                source_ids.append(source_id)
+                seen.add(source_id)
+    return source_ids
 
 
 def generate_cases(
@@ -803,19 +883,49 @@ def generate_cases(
         expected={'source_ids': [event['id'] for event in latest_events]},
     ))
 
-    inferred_sleep_intervals = _inferred_sleep_intervals(events)
+    inferred_sleep_intervals = _sleep_duration_intervals(events)
     inferred_sleep_count, inferred_sleep_minutes = _inferred_sleep_summary(events)
     if inferred_sleep_count:
+        night_start, night_end = _night_window_for_day(latest_day, timezone)
+        latest_night_intervals = _sleep_intervals_started_in_window(
+            inferred_sleep_intervals,
+            timezone,
+            night_start,
+            night_end,
+        )
+        latest_night_minutes = round(sum(interval['duration_min'] for interval in latest_night_intervals))
+        latest_night_sources = _source_ids_for_intervals(latest_night_intervals)
+        if latest_night_intervals:
+            cases.append(_case(
+                'latest-day-night-sleep-with-events',
+                'sleep',
+                'Сколько ребёнок спал сегодня ночью? Покажи события, с помощью которых считал.',
+                numbers=[latest_night_minutes],
+                number_tolerance=1,
+                sources=latest_night_sources,
+                query_contains_any=[latest_day.isoformat(), 'AT TIME ZONE', '+03'],
+                query_contains_all=['sleep_interval', 'started_at', 'wake_event_id'],
+                expected={
+                    'local_day': latest_day.isoformat(),
+                    'night_window': [
+                        night_start.isoformat(),
+                        night_end.isoformat(),
+                    ],
+                    'minutes': latest_night_minutes,
+                    'source_ids': latest_night_sources,
+                },
+            ))
+
         cases.append(_case(
             'inferred-sleep-duration-summary',
             'sleep',
             (
                 'Сколько всего снов получилось и сколько минут сна суммарно, '
-                'если считать сон от засыпания до следующей записи, '
+                'если учитывать записанные интервалы сна, сон от засыпания до следующей записи, '
                 'а пробуждения без записанного засыпания — от предыдущей не-заметки?'
             ),
             numbers=[inferred_sleep_count, inferred_sleep_minutes],
-            query_contains_any=['sleep_start'],
+            query_contains_any=['sleep_interval', 'sleep_start'],
             expected={
                 'rule': 'prompt_inferred_sleep',
                 'intervals': inferred_sleep_count,
@@ -1024,6 +1134,17 @@ def _answer_contains_expected_number(answer: str, answer_numbers: list[int], num
     return False
 
 
+def _answer_contains_expected_number_with_tolerance(
+    answer: str,
+    answer_numbers: list[int],
+    number: int,
+    tolerance: int,
+) -> bool:
+    if _answer_contains_expected_number(answer, answer_numbers, number):
+        return True
+    return tolerance > 0 and any(abs(answer_number - number) <= tolerance for answer_number in answer_numbers)
+
+
 def _combined_queries(response_data: dict[str, Any]) -> str:
     used_window = response_data.get('used_window') or {}
     queries = used_window.get('queries') or []
@@ -1041,8 +1162,9 @@ def score_case(case: dict[str, Any], status_code: int | None, response_data: dic
 
     answer = str(response_data.get('answer') or '')
     answer_numbers = _answer_numbers(answer)
+    number_tolerance = int(checks.get('number_tolerance') or 0)
     for number in checks.get('numbers') or []:
-        if not _answer_contains_expected_number(answer, answer_numbers, number):
+        if not _answer_contains_expected_number_with_tolerance(answer, answer_numbers, number, number_tolerance):
             failures.append(f'answer does not contain expected number {number}')
 
     answer_lower = answer.lower()

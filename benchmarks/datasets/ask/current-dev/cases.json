@@ -13,6 +13,7 @@
       "sources": [],
       "answer_contains": [],
       "answer_contains_any": [],
+      "number_tolerance": 0,
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [],
@@ -35,6 +36,7 @@
       "sources": [],
       "answer_contains": [],
       "answer_contains_any": [],
+      "number_tolerance": 0,
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
@@ -58,6 +60,7 @@
       "sources": [],
       "answer_contains": [],
       "answer_contains_any": [],
+      "number_tolerance": 0,
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
@@ -86,6 +89,7 @@
       "sources": [],
       "answer_contains": [],
       "answer_contains_any": [],
+      "number_tolerance": 0,
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
@@ -129,6 +133,7 @@
       "sources": [],
       "answer_contains": [],
       "answer_contains_any": [],
+      "number_tolerance": 0,
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
@@ -159,6 +164,7 @@
       "sources": [],
       "answer_contains": [],
       "answer_contains_any": [],
+      "number_tolerance": 0,
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
@@ -190,6 +196,7 @@
       "sources": [],
       "answer_contains": [],
       "answer_contains_any": [],
+      "number_tolerance": 0,
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
@@ -224,6 +231,7 @@
         "2026-05-12",
         "12 мая 2026"
       ],
+      "number_tolerance": 0,
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
@@ -256,6 +264,7 @@
       "sources": [],
       "answer_contains": [],
       "answer_contains_any": [],
+      "number_tolerance": 0,
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
@@ -286,6 +295,7 @@
       "sources": [],
       "answer_contains": [],
       "answer_contains_any": [],
+      "number_tolerance": 0,
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
@@ -312,6 +322,7 @@
       "sources": [],
       "answer_contains": [],
       "answer_contains_any": [],
+      "number_tolerance": 0,
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
@@ -337,6 +348,7 @@
       ],
       "answer_contains": [],
       "answer_contains_any": [],
+      "number_tolerance": 0,
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
@@ -366,6 +378,7 @@
       ],
       "answer_contains": [],
       "answer_contains_any": [],
+      "number_tolerance": 0,
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
@@ -376,25 +389,76 @@
     }
   },
   {
-    "id": "inferred-sleep-duration-summary",
+    "id": "latest-day-night-sleep-with-events",
     "category": "sleep",
-    "question": "Сколько всего снов получилось и сколько минут сна суммарно, если считать сон от засыпания до следующей записи, а пробуждения без записанного засыпания — от предыдущей не-заметки?",
+    "question": "Сколько ребёнок спал сегодня ночью? Покажи события, с помощью которых считал.",
     "expected": {
-      "rule": "prompt_inferred_sleep",
-      "intervals": 155,
-      "minutes": 11549
+      "local_day": "2026-05-12",
+      "night_window": [
+        "2026-05-11T20:00:00+03:00",
+        "2026-05-12T06:00:00+03:00"
+      ],
+      "minutes": 380,
+      "source_ids": [
+        "e52e1647-1285-42a4-baad-29833d681539",
+        "4a678143-be91-4bfe-add6-9ee2c313894d",
+        "ce7726e9-f84c-4b71-af04-1d60debe6cd3",
+        "22e9959c-0cef-4f54-8664-5950ad1e36a2",
+        "273bc7fa-4698-42f3-bbdb-9d1be925f8f8",
+        "bd1d7bd2-b370-4fa9-b0b2-4357269fa22b"
+      ]
     },
     "checks": {
       "numbers": [
-        155,
-        11549
+        380
+      ],
+      "sources": [
+        "e52e1647-1285-42a4-baad-29833d681539",
+        "4a678143-be91-4bfe-add6-9ee2c313894d",
+        "ce7726e9-f84c-4b71-af04-1d60debe6cd3",
+        "22e9959c-0cef-4f54-8664-5950ad1e36a2",
+        "273bc7fa-4698-42f3-bbdb-9d1be925f8f8",
+        "bd1d7bd2-b370-4fa9-b0b2-4357269fa22b"
+      ],
+      "answer_contains": [],
+      "answer_contains_any": [],
+      "number_tolerance": 1,
+      "max_iterations": 5,
+      "requires_sql": true,
+      "query_contains_any": [
+        "2026-05-12",
+        "AT TIME ZONE",
+        "+03"
+      ],
+      "query_contains_all": [
+        "sleep_interval",
+        "started_at",
+        "wake_event_id"
+      ]
+    }
+  },
+  {
+    "id": "inferred-sleep-duration-summary",
+    "category": "sleep",
+    "question": "Сколько всего снов получилось и сколько минут сна суммарно, если учитывать записанные интервалы сна, сон от засыпания до следующей записи, а пробуждения без записанного засыпания — от предыдущей не-заметки?",
+    "expected": {
+      "rule": "prompt_inferred_sleep",
+      "intervals": 161,
+      "minutes": 11830
+    },
+    "checks": {
+      "numbers": [
+        161,
+        11830
       ],
       "sources": [],
       "answer_contains": [],
       "answer_contains_any": [],
+      "number_tolerance": 0,
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
+        "sleep_interval",
         "sleep_start"
       ],
       "query_contains_all": []
@@ -405,16 +469,17 @@
     "category": "sleep_stats",
     "question": "В среднем сколько минут сна в день получается по дням, где есть записи сна?",
     "expected": {
-      "average_minutes": 770,
+      "average_minutes": 789,
       "days_with_sleep_data": 15
     },
     "checks": {
       "numbers": [
-        770
+        789
       ],
       "sources": [],
       "answer_contains": [],
       "answer_contains_any": [],
+      "number_tolerance": 0,
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
@@ -429,16 +494,17 @@
     "category": "sleep_stats",
     "question": "В среднем сколько минут сна в месяц получается по месяцам, где есть записи сна?",
     "expected": {
-      "average_minutes": 5774,
+      "average_minutes": 5915,
       "months_with_sleep_data": 2
     },
     "checks": {
       "numbers": [
-        5774
+        5915
       ],
       "sources": [],
       "answer_contains": [],
       "answer_contains_any": [],
+      "number_tolerance": 0,
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [

@@ -181,6 +181,88 @@ def test_generate_cases_adds_sleep_end_without_start_intervals() -> None:
     }
 
 
+def test_generate_cases_adds_latest_day_night_sleep_with_explicit_intervals() -> None:
+    events = [
+        _event(
+            '00000000-0000-0000-0000-000000000001',
+            '2026-05-11T21:34:22Z',
+            'sleep_interval',
+            {
+                'started_at': '2026-05-11T22:20:00+03:00',
+                'ended_at': '2026-05-12T00:30:00+03:00',
+            },
+        ),
+        _event(
+            '00000000-0000-0000-0000-000000000002',
+            '2026-05-12T00:03:24Z',
+            'sleep_interval',
+            {
+                'started_at': '2026-05-12T00:50:00+03:00',
+                'ended_at': '2026-05-12T03:00:00+03:00',
+            },
+        ),
+        _event('00000000-0000-0000-0000-000000000003', '2026-05-12T00:30:00Z', 'sleep_start', {}),
+        _event('00000000-0000-0000-0000-000000000004', '2026-05-12T01:22:27Z', 'sleep_end', {}),
+        _event('00000000-0000-0000-0000-000000000005', '2026-05-12T01:30:38Z', 'sleep_start', {}),
+        _event('00000000-0000-0000-0000-000000000006', '2026-05-12T02:37:55Z', 'sleep_end', {}),
+        _event(
+            '00000000-0000-0000-0000-000000000007',
+            '2026-05-12T05:37:05Z',
+            'sleep_interval',
+            {
+                'started_at': '2026-05-12T07:20:00+03:00',
+                'ended_at': '2026-05-12T08:30:00+03:00',
+            },
+        ),
+    ]
+
+    cases = ask.generate_cases(events)
+    night_case = next(case for case in cases if case['id'] == 'latest-day-night-sleep-with-events')
+    summary_case = next(case for case in cases if case['id'] == 'inferred-sleep-duration-summary')
+
+    assert night_case['expected'] == {
+        'local_day': '2026-05-12',
+        'night_window': ['2026-05-11T20:00:00+03:00', '2026-05-12T06:00:00+03:00'],
+        'minutes': 380,
+        'source_ids': [
+            '00000000-0000-0000-0000-000000000001',
+            '00000000-0000-0000-0000-000000000002',
+            '00000000-0000-0000-0000-000000000003',
+            '00000000-0000-0000-0000-000000000004',
+            '00000000-0000-0000-0000-000000000005',
+            '00000000-0000-0000-0000-000000000006',
+        ],
+    }
+    assert night_case['checks']['numbers'] == [380]
+    assert night_case['checks']['number_tolerance'] == 1
+    assert night_case['checks']['sources'] == night_case['expected']['source_ids']
+    assert night_case['checks']['query_contains_all'] == ['sleep_interval', 'started_at', 'wake_event_id']
+    assert summary_case['expected'] == {'rule': 'prompt_inferred_sleep', 'intervals': 5, 'minutes': 450}
+
+
+def test_generate_cases_does_not_double_count_inferred_sleep_overlapping_explicit_interval() -> None:
+    events = [
+        _event('00000000-0000-0000-0000-000000000001', '2026-05-11T18:57:10Z', 'sleep_start', {}),
+        _event(
+            '00000000-0000-0000-0000-000000000002',
+            '2026-05-11T21:34:22Z',
+            'sleep_interval',
+            {
+                'started_at': '2026-05-11T22:20:00+03:00',
+                'ended_at': '2026-05-12T00:30:00+03:00',
+            },
+        ),
+    ]
+
+    cases = ask.generate_cases(events)
+    night_case = next(case for case in cases if case['id'] == 'latest-day-night-sleep-with-events')
+    summary_case = next(case for case in cases if case['id'] == 'inferred-sleep-duration-summary')
+
+    assert night_case['expected']['minutes'] == 130
+    assert night_case['expected']['source_ids'] == ['00000000-0000-0000-0000-000000000002']
+    assert summary_case['expected'] == {'rule': 'prompt_inferred_sleep', 'intervals': 1, 'minutes': 130}
+
+
 def test_generate_cases_adds_today_case_after_pinned_snapshot() -> None:
     events = [
         _event('00000000-0000-0000-0000-000000000001', '2026-05-10T18:00:00Z', 'diaper', {'kind': 'pee'}),
@@ -328,6 +410,28 @@ def test_score_case_accepts_grouped_number_with_narrow_no_break_space() -> None:
     response = {
         'answer': 'Суммарно ребёнок спал 11 549 минут.',
         'used_window': {'iterations': 2, 'queries': ['SELECT 11549']},
+        'sources': [],
+    }
+
+    score = ask.score_case(case, 200, response)
+
+    assert score == {'passed': True, 'failures': []}
+
+
+def test_score_case_accepts_number_with_configured_tolerance() -> None:
+    case = {
+        'checks': {
+            'numbers': [380],
+            'number_tolerance': 1,
+            'sources': [],
+            'max_iterations': 2,
+            'requires_sql': True,
+            'query_contains_any': [],
+        },
+    }
+    response = {
+        'answer': 'Итого получилось 379 минут.',
+        'used_window': {'iterations': 2, 'queries': ['SELECT 379']},
         'sources': [],
     }
 

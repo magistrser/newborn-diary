@@ -247,26 +247,52 @@ SELECT COUNT(DISTINCT session_id) AS feeding_count FROM sessions;
 ## Подсчёт сна и длительности сна
 
 Пользователь не всегда явно записывает начало или окончание сна. Если нужно посчитать длительность сна:
+- сначала учитывай явные записи `sleep_interval`: это уже готовые интервалы сна, их начало и конец
+  лежат в `payload->>'started_at'` и `payload->>'ended_at'`;
 - считай сон от события `sleep_start` до следующего события после него,
   у которого `type NOT IN ('sleep_start', 'note')`;
 - если есть `sleep_end`, но он не является пробуждением для уже посчитанного `sleep_start`,
   считай, что ребёнок спал от предыдущей записи с `type <> 'note'` до этого `sleep_end`.
+Явные `sleep_interval` важнее выведенных интервалов: не добавляй выведенный интервал,
+если он пересекается по времени с любым `sleep_interval`, иначе сон будет посчитан дважды.
 События `note` — это заметки, они не являются началом или окончанием сна и не должны участвовать
 в расчёте сна как границы интервала.
 Не суммируй `payload->>'duration_min'` из всех типов событий: поле `duration_min` есть не только у сна.
 Не оставляй `...` в SQL. Для любых вопросов о длительности сна копируй весь набор CTE ниже:
-`start_based_sleeps`, `sleep_end_without_start`, затем `inferred_sleeps`.
+`explicit_sleep_intervals`, `start_based_sleeps`, `sleep_end_without_start`, затем `inferred_sleeps`.
 В `sleep_end_without_start` сначала найди предыдущую запись с `p.type <> 'note'`, а потом фильтруй
 `previous_event.type <> 'sleep_start'`. Не добавляй `p.type <> 'sleep_start'` внутрь поиска
 предыдущей записи. Чтобы не считать `sleep_end` дважды, используй именно условие
-`NOT EXISTS (SELECT 1 FROM start_based_sleeps counted WHERE counted.wake_event_id = e.id)`.
+`NOT EXISTS (SELECT 1 FROM start_based_sleeps_raw counted WHERE counted.wake_event_id = e.id)`.
 Даже если пользователь спрашивает только про такие дополнительные `sleep_end` без записанного засыпания,
 всё равно сначала построй `start_based_sleeps` и исключи уже использованные пробуждения через `NOT EXISTS`.
+Если пользователь спрашивает "сегодня ночью" или "сегодняшней ночью", считай ночной сон,
+относящийся к сегодняшней локальной дате: с 20:00 предыдущего календарного дня до 06:00 сегодняшнего дня
+в часовом поясе пользователя. Фильтруй уже построенные интервалы сна по `started_at`.
+Если пользователь просит показать события, включай id всех использованных событий: для `sleep_interval`
+это id самого интервала, для сна от `sleep_start` до пробуждения — id начала и `wake_event_id`.
+Не агрегируй использованные события в JSON/array для таких вопросов: верни строки интервалов с колонками
+`id`, `wake_event_id`, `started_at`, `woke_at`, `duration_min`, чтобы источники попали в ответ.
 
 Базовый CTE для длительности сна:
 
 ```sql
-WITH start_based_sleeps AS (
+WITH explicit_sleep_intervals AS (
+  SELECT
+    e.id AS id,
+    (e.payload->>'started_at')::TIMESTAMPTZ AS started_at,
+    e.id AS wake_event_id,
+    (e.payload->>'ended_at')::TIMESTAMPTZ AS woke_at,
+    EXTRACT(EPOCH FROM (
+      (e.payload->>'ended_at')::TIMESTAMPTZ - (e.payload->>'started_at')::TIMESTAMPTZ
+    )) / 60.0 AS duration_min
+  FROM events e
+  WHERE e.type = 'sleep_interval'
+    AND (e.payload->>'started_at') IS NOT NULL
+    AND (e.payload->>'ended_at') IS NOT NULL
+    AND (e.payload->>'ended_at')::TIMESTAMPTZ >= (e.payload->>'started_at')::TIMESTAMPTZ
+),
+start_based_sleeps_raw AS (
   SELECT
     s.id AS id,
     s.occurred_at AS started_at,
@@ -295,7 +321,17 @@ WITH start_based_sleeps AS (
   ) wake
   WHERE s.type = 'sleep_start'
 ),
-sleep_end_without_start AS (
+start_based_sleeps AS (
+  SELECT *
+  FROM start_based_sleeps_raw inferred
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM explicit_sleep_intervals explicit
+    WHERE inferred.started_at < explicit.woke_at
+      AND inferred.woke_at > explicit.started_at
+  )
+),
+sleep_end_without_start_raw AS (
   SELECT
     e.id AS id,
     previous_event.occurred_at AS started_at,
@@ -327,16 +363,43 @@ sleep_end_without_start AS (
   WHERE e.type = 'sleep_end'
     AND previous_event.type <> 'sleep_start'
     AND NOT EXISTS (
-      SELECT 1 FROM start_based_sleeps counted WHERE counted.wake_event_id = e.id
+      SELECT 1 FROM start_based_sleeps_raw counted WHERE counted.wake_event_id = e.id
     )
 ),
+sleep_end_without_start AS (
+  SELECT *
+  FROM sleep_end_without_start_raw inferred
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM explicit_sleep_intervals explicit
+    WHERE inferred.started_at < explicit.woke_at
+      AND inferred.woke_at > explicit.started_at
+  )
+),
 inferred_sleeps AS (
+  SELECT id, started_at, wake_event_id, woke_at, duration_min FROM explicit_sleep_intervals
+  UNION ALL
   SELECT id, started_at, wake_event_id, woke_at, duration_min FROM start_based_sleeps
   UNION ALL
   SELECT id, started_at, wake_event_id, woke_at, duration_min FROM sleep_end_without_start
 )
 SELECT COUNT(*) AS sleep_count, ROUND(SUM(duration_min))::INTEGER AS total_sleep_minutes
 FROM inferred_sleeps;
+```
+
+Для "сегодня ночью" после полного CTE выше добавь фильтр по началу интервала и возвращай строки,
+если пользователь просит показать события:
+
+```sql
+night_sleeps AS (
+  SELECT *
+  FROM inferred_sleeps
+  WHERE started_at >= '2026-05-11 20:00:00+03'
+    AND started_at <  '2026-05-12 06:00:00+03'
+)
+SELECT id, wake_event_id, started_at, woke_at, ROUND(duration_min)::INTEGER AS minutes
+FROM night_sleeps
+ORDER BY started_at ASC;
 ```
 
 Для среднего сна в день сначала получи `inferred_sleeps` через полный базовый CTE выше.

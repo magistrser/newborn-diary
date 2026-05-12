@@ -95,16 +95,20 @@ def validate_select(sql: str) -> str:
 def extract_uuid_ids(result: dict) -> list[uuid.UUID]:
     cols = result.get('columns', [])
     rows = result.get('rows', [])
-    try:
-        id_idx = cols.index('id')
-    except ValueError:
+    id_indexes = [
+        index
+        for index, column in enumerate(cols)
+        if str(column).lower() == 'id' or str(column).lower().endswith('_id')
+    ]
+    if not id_indexes:
         return []
     ids: list[uuid.UUID] = []
     for row in rows:
-        try:
-            ids.append(uuid.UUID(str(row[id_idx])))
-        except (ValueError, TypeError, IndexError):
-            pass
+        for id_idx in id_indexes:
+            try:
+                ids.append(uuid.UUID(str(row[id_idx])))
+            except (ValueError, TypeError, IndexError):
+                pass
     return ids
 
 
