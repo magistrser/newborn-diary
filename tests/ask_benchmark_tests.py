@@ -61,6 +61,32 @@ def test_generate_cases_uses_snapshot_values() -> None:
     assert by_id['total-events']['checks']['numbers'] == [6]
     assert by_id['count-type-diaper']['expected'] == {'type': 'diaper', 'count': 3, 'unit': 'events'}
     assert by_id['count-poo-diapers']['checks']['numbers'] == [2]
+    assert by_id['latest-week-events-total']['expected'] == {
+        'date_range': ['2026-05-04', '2026-05-10'],
+        'total_events': 5,
+    }
+    assert by_id['latest-week-events-by-day']['expected'] == {
+        'date_range': ['2026-05-04', '2026-05-10'],
+        'day_counts': {
+            '2026-05-04': 0,
+            '2026-05-05': 0,
+            '2026-05-06': 0,
+            '2026-05-07': 0,
+            '2026-05-08': 0,
+            '2026-05-09': 0,
+            '2026-05-10': 5,
+        },
+    }
+    assert by_id['latest-week-average-events-per-day']['expected'] == {
+        'date_range': ['2026-05-04', '2026-05-10'],
+        'average_events_per_day': 1,
+        'days': 7,
+    }
+    assert by_id['latest-week-busiest-event-day']['expected'] == {
+        'date_range': ['2026-05-04', '2026-05-10'],
+        'local_day': '2026-05-10',
+        'count': 5,
+    }
     assert by_id['previous-week-most-poo-day']['expected'] == {
         'local_day': '2026-04-30',
         'count': 1,
@@ -122,7 +148,7 @@ def test_generate_cases_infers_sleep_from_start_to_next_non_start_event() -> Non
     sleep_case = next(case for case in cases if case['id'] == 'inferred-sleep-duration-summary')
 
     assert sleep_case['expected'] == {
-        'rule': 'sleep_start_to_next_non_sleep_start',
+        'rule': 'prompt_inferred_sleep',
         'intervals': 2,
         'minutes': 75,
     }
@@ -132,6 +158,27 @@ def test_generate_cases_infers_sleep_from_start_to_next_non_start_event() -> Non
     average_month_case = next(case for case in cases if case['id'] == 'average-sleep-minutes-per-month')
     assert average_day_case['expected'] == {'average_minutes': 75, 'days_with_sleep_data': 1}
     assert average_month_case['expected'] == {'average_minutes': 75, 'months_with_sleep_data': 1}
+
+
+def test_generate_cases_adds_sleep_end_without_start_intervals() -> None:
+    events = [
+        _event(
+            '00000000-0000-0000-0000-000000000001',
+            '2026-05-10T06:00:00Z',
+            'feed_breast',
+            {'side': 'left'},
+        ),
+        _event('00000000-0000-0000-0000-000000000002', '2026-05-10T06:30:00Z', 'sleep_end', {}),
+    ]
+
+    cases = ask.generate_cases(events)
+    sleep_case = next(case for case in cases if case['id'] == 'inferred-sleep-duration-summary')
+
+    assert sleep_case['expected'] == {
+        'rule': 'prompt_inferred_sleep',
+        'intervals': 1,
+        'minutes': 30,
+    }
 
 
 def test_generate_cases_adds_today_case_after_pinned_snapshot() -> None:
@@ -145,6 +192,39 @@ def test_generate_cases_adds_today_case_after_pinned_snapshot() -> None:
     assert today_case['question'] == 'Сколько записей сегодня?'
     assert today_case['expected'] == {'local_day': '2026-05-11', 'count': 0}
     assert today_case['checks']['numbers'] == [0]
+
+
+def test_generate_cases_adds_event_time_case_when_raw_text_has_different_time() -> None:
+    events = [
+        _event(
+            '00000000-0000-0000-0000-000000000001',
+            '2026-05-11T21:34:22Z',
+            'sleep_interval',
+            {'started_at': '2026-05-11T19:20:00Z', 'ended_at': '2026-05-11T21:30:00Z'},
+        )
+        | {'raw_text': '22:20-00:30 сон'},
+        _event(
+            '00000000-0000-0000-0000-000000000002',
+            '2026-05-12T00:03:24Z',
+            'feed_breast',
+            {'side': 'left'},
+        ),
+    ]
+
+    cases = ask.generate_cases(events)
+    time_case = next(case for case in cases if case['id'] == 'latest-day-first-event-time-from-occurred-at')
+
+    assert time_case['expected'] == {
+        'source_id': '00000000-0000-0000-0000-000000000001',
+        'local_day': '2026-05-12',
+        'local_time': '00:34',
+        'raw_text_time_example': '22:20',
+        'rule': 'event time must come from occurred_at, not raw_text',
+    }
+    assert time_case['checks']['sources'] == ['00000000-0000-0000-0000-000000000001']
+    assert time_case['checks']['answer_contains'] == ['00:34']
+    assert time_case['checks']['answer_contains_any'] == ['2026-05-12', '12 мая 2026']
+    assert time_case['checks']['query_contains_all'] == ['occurred_at', 'raw_text', 'ORDER BY']
 
 
 def test_score_case_checks_status_numbers_sources_queries_and_iterations() -> None:
@@ -161,6 +241,30 @@ def test_score_case_checks_status_numbers_sources_queries_and_iterations() -> No
         'answer': 'Всего 5 событий.',
         'used_window': {'iterations': 2, 'queries': ['SELECT count(*) FROM events']},
         'sources': ['00000000-0000-0000-0000-000000000001'],
+    }
+
+    score = ask.score_case(case, 200, response)
+
+    assert score == {'passed': True, 'failures': []}
+
+
+def test_score_case_checks_answer_and_required_query_fragments() -> None:
+    case = {
+        'checks': {
+            'numbers': [],
+            'sources': [],
+            'answer_contains': ['00:34'],
+            'answer_contains_any': ['2026-05-12', '12 мая 2026'],
+            'max_iterations': 2,
+            'requires_sql': True,
+            'query_contains_any': [],
+            'query_contains_all': ['occurred_at', 'raw_text'],
+        },
+    }
+    response = {
+        'answer': 'Первое событие было 12 мая 2026 в 00:34.',
+        'used_window': {'iterations': 2, 'queries': ['SELECT occurred_at, raw_text FROM events']},
+        'sources': [],
     }
 
     score = ask.score_case(case, 200, response)
@@ -203,6 +307,27 @@ def test_score_case_accepts_zero_answer_without_digit() -> None:
     response = {
         'answer': 'Сегодня записей нет.',
         'used_window': {'iterations': 2, 'queries': ['SELECT count(*) FROM events']},
+        'sources': [],
+    }
+
+    score = ask.score_case(case, 200, response)
+
+    assert score == {'passed': True, 'failures': []}
+
+
+def test_score_case_accepts_grouped_number_with_narrow_no_break_space() -> None:
+    case = {
+        'checks': {
+            'numbers': [11549],
+            'sources': [],
+            'max_iterations': 2,
+            'requires_sql': True,
+            'query_contains_any': [],
+        },
+    }
+    response = {
+        'answer': 'Суммарно ребёнок спал 11 549 минут.',
+        'used_window': {'iterations': 2, 'queries': ['SELECT 11549']},
         'sources': [],
     }
 

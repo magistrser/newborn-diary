@@ -266,9 +266,12 @@ def _case(
     *,
     numbers: Sequence[int] = (),
     sources: Sequence[str] = (),
+    answer_contains: Sequence[str] = (),
+    answer_contains_any: Sequence[str] = (),
     max_iterations: int = 5,
     requires_sql: bool = True,
     query_contains_any: Sequence[str] = (),
+    query_contains_all: Sequence[str] = (),
     expected: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
@@ -279,9 +282,12 @@ def _case(
         'checks': {
             'numbers': list(numbers),
             'sources': list(sources),
+            'answer_contains': list(answer_contains),
+            'answer_contains_any': list(answer_contains_any),
             'max_iterations': max_iterations,
             'requires_sql': requires_sql,
             'query_contains_any': list(query_contains_any),
+            'query_contains_all': list(query_contains_all),
         },
     }
 
@@ -299,6 +305,29 @@ def _previous_week_range(latest_day: date) -> tuple[date, date]:
     previous_week_start = current_week_start - timedelta(days=7)
     previous_week_end = current_week_start - timedelta(days=1)
     return previous_week_start, previous_week_end
+
+
+def _current_week_range(day: date) -> tuple[date, date]:
+    week_start = day - timedelta(days=day.weekday())
+    week_end = week_start + timedelta(days=6)
+    return week_start, week_end
+
+
+def _event_counts_by_day_in_range(
+    events: Iterable[dict[str, Any]],
+    timezone: ZoneInfo,
+    start: date,
+    end: date,
+) -> dict[str, int]:
+    days = {
+        (start + timedelta(days=offset)).isoformat(): 0
+        for offset in range((end - start).days + 1)
+    }
+    for event in events:
+        local_date = _parse_datetime(event['occurred_at']).astimezone(timezone).date()
+        if start <= local_date <= end:
+            days[local_date.isoformat()] += 1
+    return days
 
 
 def _is_poo_diaper(event: dict[str, Any]) -> bool:
@@ -368,6 +397,7 @@ def _sleep_interval_summary(events: list[dict[str, Any]]) -> tuple[int, int]:
 
 def _inferred_sleep_intervals(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     intervals = []
+    used_wake_event_ids: set[str] = set()
     for event in events:
         if event['type'] != 'sleep_start':
             continue
@@ -375,7 +405,7 @@ def _inferred_sleep_intervals(events: list[dict[str, Any]]) -> list[dict[str, An
         wake_candidates = [
             candidate
             for candidate in events
-            if candidate['type'] != 'sleep_start' and _is_after_sleep_start(candidate, event)
+            if candidate['type'] not in {'sleep_start', 'note'} and _is_after_sleep_start(candidate, event)
         ]
         wake_candidates.sort(
             key=lambda candidate: (
@@ -392,12 +422,47 @@ def _inferred_sleep_intervals(events: list[dict[str, Any]]) -> list[dict[str, An
         woke_at = _parse_datetime(wake_event['occurred_at'])
         duration_min = (woke_at - started_at).total_seconds() / 60.0
         if duration_min >= 0:
+            used_wake_event_ids.add(wake_event['id'])
             intervals.append({
                 'id': event['id'],
                 'started_at': event['occurred_at'],
+                'wake_event_id': wake_event['id'],
                 'woke_at': wake_event['occurred_at'],
                 'duration_min': duration_min,
                 'wake_event_type': wake_event['type'],
+            })
+    for event in events:
+        if event['type'] != 'sleep_end' or event['id'] in used_wake_event_ids:
+            continue
+        previous_candidates = [
+            candidate
+            for candidate in events
+            if candidate['type'] != 'note' and _is_before_event(candidate, event)
+        ]
+        previous_candidates.sort(
+            key=lambda candidate: (
+                _parse_datetime(candidate['occurred_at']),
+                candidate.get('source_event_index') or 0
+                if _parse_datetime(candidate['occurred_at']) == _parse_datetime(event['occurred_at'])
+                else 32767,
+                candidate['id'],
+            ),
+            reverse=True,
+        )
+        previous_event = previous_candidates[0] if previous_candidates else None
+        if previous_event is None or previous_event['type'] == 'sleep_start':
+            continue
+        started_at = _parse_datetime(previous_event['occurred_at'])
+        woke_at = _parse_datetime(event['occurred_at'])
+        duration_min = (woke_at - started_at).total_seconds() / 60.0
+        if duration_min >= 0:
+            intervals.append({
+                'id': event['id'],
+                'started_at': previous_event['occurred_at'],
+                'wake_event_id': event['id'],
+                'woke_at': event['occurred_at'],
+                'duration_min': duration_min,
+                'wake_event_type': event['type'],
             })
     return intervals
 
@@ -412,6 +477,19 @@ def _is_after_sleep_start(candidate: dict[str, Any], sleep_start: dict[str, Any]
         and candidate.get('source_chat_id') == sleep_start.get('source_chat_id')
         and candidate.get('source_message_id') == sleep_start.get('source_message_id')
         and (candidate.get('source_event_index') or 0) > (sleep_start.get('source_event_index') or 0)
+    )
+
+
+def _is_before_event(candidate: dict[str, Any], event: dict[str, Any]) -> bool:
+    candidate_at = _parse_datetime(candidate['occurred_at'])
+    event_at = _parse_datetime(event['occurred_at'])
+    if candidate_at < event_at:
+        return True
+    return (
+        candidate_at == event_at
+        and candidate.get('source_chat_id') == event.get('source_chat_id')
+        and candidate.get('source_message_id') == event.get('source_message_id')
+        and (candidate.get('source_event_index') or 0) < (event.get('source_event_index') or 0)
     )
 
 
@@ -443,6 +521,42 @@ def _rounded_average(values: Iterable[float]) -> int:
     if not values:
         return 0
     return round(sum(values) / len(values))
+
+
+def _raw_text_clock_times(raw_text: str | None) -> list[str]:
+    if not raw_text:
+        return []
+    return [
+        f'{int(hour):02d}:{minute}'
+        for hour, minute in re.findall(r'(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)', raw_text)
+    ]
+
+
+def _first_event_with_raw_text_time_mismatch(
+    events: Iterable[dict[str, Any]],
+    timezone: ZoneInfo,
+    local_day: date,
+) -> tuple[dict[str, Any], str, str] | None:
+    day_events = sorted(
+        (
+            event
+            for event in events
+            if _parse_datetime(event['occurred_at']).astimezone(timezone).date() == local_day
+        ),
+        key=lambda event: (
+            _parse_datetime(event['occurred_at']),
+            event.get('source_event_index') or 0,
+            event['id'],
+        ),
+    )
+    for event in day_events:
+        raw_times = _raw_text_clock_times(event.get('raw_text'))
+        if not raw_times:
+            continue
+        local_time = _parse_datetime(event['occurred_at']).astimezone(timezone).strftime('%H:%M')
+        if local_time not in raw_times:
+            return event, local_time, raw_times[0]
+    return None
 
 
 def generate_cases(
@@ -495,6 +609,117 @@ def generate_cases(
     ))
 
     latest_day = max(_parse_datetime(event['occurred_at']).astimezone(timezone).date() for event in events)
+    latest_week_start, latest_week_end = _current_week_range(latest_day)
+    latest_week_counts = _event_counts_by_day_in_range(events, timezone, latest_week_start, latest_week_end)
+    latest_week_total = sum(latest_week_counts.values())
+    latest_week_average = round(latest_week_total / len(latest_week_counts))
+    busiest_day, busiest_day_count = sorted(
+        latest_week_counts.items(),
+        key=lambda item: (-item[1], item[0]),
+    )[0]
+    cases.extend([
+        _case(
+            'latest-week-events-total',
+            'daily_stats',
+            f'Сколько всего записей было за неделю с {_ru_date_range(latest_week_start, latest_week_end)}?',
+            numbers=[latest_week_total],
+            query_contains_any=[
+                latest_week_start.isoformat(),
+                latest_week_end.isoformat(),
+                'AT TIME ZONE',
+                '+03',
+            ],
+            expected={
+                'date_range': [latest_week_start.isoformat(), latest_week_end.isoformat()],
+                'total_events': latest_week_total,
+            },
+        ),
+        _case(
+            'latest-week-events-by-day',
+            'daily_stats',
+            (
+                'Покажи статистику количества записей по дням за неделю с '
+                f'{_ru_date_range(latest_week_start, latest_week_end)}.'
+            ),
+            numbers=list(latest_week_counts.values()),
+            query_contains_any=[
+                latest_week_start.isoformat(),
+                latest_week_end.isoformat(),
+                'AT TIME ZONE',
+                'GROUP BY',
+            ],
+            expected={
+                'date_range': [latest_week_start.isoformat(), latest_week_end.isoformat()],
+                'day_counts': latest_week_counts,
+            },
+        ),
+        _case(
+            'latest-week-average-events-per-day',
+            'daily_stats',
+            (
+                'В среднем сколько записей в день было за неделю с '
+                f'{_ru_date_range(latest_week_start, latest_week_end)}? Округли до целого.'
+            ),
+            numbers=[latest_week_average],
+            query_contains_any=[
+                latest_week_start.isoformat(),
+                latest_week_end.isoformat(),
+                'AT TIME ZONE',
+                'AVG',
+            ],
+            expected={
+                'date_range': [latest_week_start.isoformat(), latest_week_end.isoformat()],
+                'average_events_per_day': latest_week_average,
+                'days': len(latest_week_counts),
+            },
+        ),
+        _case(
+            'latest-week-busiest-event-day',
+            'daily_stats',
+            (
+                'В какой день за неделю с '
+                f'{_ru_date_range(latest_week_start, latest_week_end)} было больше всего записей и сколько?'
+            ),
+            numbers=[int(busiest_day[-2:]), busiest_day_count],
+            query_contains_any=[
+                latest_week_start.isoformat(),
+                latest_week_end.isoformat(),
+                'AT TIME ZONE',
+                'GROUP BY',
+            ],
+            expected={
+                'date_range': [latest_week_start.isoformat(), latest_week_end.isoformat()],
+                'local_day': busiest_day,
+                'count': busiest_day_count,
+            },
+        ),
+    ])
+
+    time_mismatch = _first_event_with_raw_text_time_mismatch(events, timezone, latest_day)
+    if time_mismatch is not None:
+        mismatch_event, local_time, raw_text_time = time_mismatch
+        latest_day_str = latest_day.isoformat()
+        cases.append(_case(
+            'latest-day-first-event-time-from-occurred-at',
+            'event_time',
+            (
+                f'Покажи первое событие за {_ru_date(latest_day_str)}: дату, '
+                'локальное время из occurred_at, occurred_at UTC и raw_text.'
+            ),
+            sources=[mismatch_event['id']],
+            answer_contains=[local_time],
+            answer_contains_any=[latest_day_str, _ru_date(latest_day_str)],
+            query_contains_any=[latest_day_str, 'AT TIME ZONE', '+03'],
+            query_contains_all=['occurred_at', 'raw_text', 'ORDER BY'],
+            expected={
+                'source_id': mismatch_event['id'],
+                'local_day': latest_day_str,
+                'local_time': local_time,
+                'raw_text_time_example': raw_text_time,
+                'rule': 'event time must come from occurred_at, not raw_text',
+            },
+        ))
+
     local_today = (now or datetime.now(UTC)).astimezone(timezone).date()
     if local_today > latest_day:
         cases.append(_case(
@@ -586,12 +811,13 @@ def generate_cases(
             'sleep',
             (
                 'Сколько всего снов получилось и сколько минут сна суммарно, '
-                'если считать пробуждением следующую запись после засыпания?'
+                'если считать сон от засыпания до следующей записи, '
+                'а пробуждения без записанного засыпания — от предыдущей не-заметки?'
             ),
             numbers=[inferred_sleep_count, inferred_sleep_minutes],
             query_contains_any=['sleep_start'],
             expected={
-                'rule': 'sleep_start_to_next_non_sleep_start',
+                'rule': 'prompt_inferred_sleep',
                 'intervals': inferred_sleep_count,
                 'minutes': inferred_sleep_minutes,
             },
@@ -777,12 +1003,18 @@ def stop_process(process: subprocess.Popen) -> None:
         process.wait(timeout=10)
 
 
+def _normalize_number_separators(answer: str) -> str:
+    return re.sub(r'(?<=\d)[\s\u00a0\u202f](?=\d)', '', answer)
+
+
 def _answer_numbers(answer: str) -> list[int]:
+    answer = _normalize_number_separators(answer)
     return [int(match) for match in re.findall(r'(?<![\d.,])-?\d+(?![\d.,])', answer)]
 
 
 def _answer_contains_expected_number(answer: str, answer_numbers: list[int], number: int) -> bool:
-    if number in answer_numbers or str(number) in answer:
+    normalized_answer = _normalize_number_separators(answer)
+    if number in answer_numbers or str(number) in normalized_answer:
         return True
     if number == 0:
         answer_lower = answer.lower()
@@ -813,6 +1045,15 @@ def score_case(case: dict[str, Any], status_code: int | None, response_data: dic
         if not _answer_contains_expected_number(answer, answer_numbers, number):
             failures.append(f'answer does not contain expected number {number}')
 
+    answer_lower = answer.lower()
+    for fragment in checks.get('answer_contains') or []:
+        if str(fragment).lower() not in answer_lower:
+            failures.append(f'answer does not contain expected text {fragment!r}')
+
+    answer_contains_any = [str(fragment).lower() for fragment in checks.get('answer_contains_any') or []]
+    if answer_contains_any and not any(fragment in answer_lower for fragment in answer_contains_any):
+        failures.append(f'answer does not contain any of: {", ".join(answer_contains_any)}')
+
     used_window = response_data.get('used_window') or {}
     queries = used_window.get('queries') or []
     if checks.get('requires_sql', True) and not queries:
@@ -832,6 +1073,11 @@ def score_case(case: dict[str, Any], status_code: int | None, response_data: dic
     query_contains_any = [str(fragment).lower() for fragment in checks.get('query_contains_any') or []]
     if query_contains_any and not any(fragment in query_text for fragment in query_contains_any):
         failures.append(f'queries do not contain any of: {", ".join(query_contains_any)}')
+
+    query_contains_all = [str(fragment).lower() for fragment in checks.get('query_contains_all') or []]
+    missing_query_fragments = [fragment for fragment in query_contains_all if fragment not in query_text]
+    if missing_query_fragments:
+        failures.append(f'queries do not contain required text: {", ".join(missing_query_fragments)}')
 
     return {'passed': not failures, 'failures': failures}
 

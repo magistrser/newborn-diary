@@ -32,6 +32,21 @@ def test_sql_prompt_describes_breast_feeding_session_count() -> None:
     assert "фильтруй `type = 'feed_breast'` и группируй близкие записи" in prompt
 
 
+def test_sql_prompt_uses_occurred_at_as_event_time_not_raw_text() -> None:
+    prompt = build_sql_system_prompt(
+        now=datetime(2026, 5, 12, 5, 0, tzinfo=UTC),
+        tz='Europe/Moscow',
+        row_cap=200,
+        statement_timeout_ms=3000,
+    )
+
+    assert '`occurred_at` — единственный источник времени и даты события' in prompt
+    assert 'выбора первого/последнего события и показа времени пользователю' in prompt
+    assert 'не извлекай время события из `raw_text`' in prompt
+    assert "occurred_at AT TIME ZONE 'Europe/Moscow' AS local_occurred_at" in prompt
+    assert 'ORDER BY occurred_at ASC, source_event_index ASC, id ASC' in prompt
+
+
 def test_sql_prompt_describes_inferred_sleep_duration_rule() -> None:
     prompt = build_sql_system_prompt(
         now=datetime(2026, 5, 11, 12, 0, tzinfo=UTC),
