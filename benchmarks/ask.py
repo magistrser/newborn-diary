@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# pylint: disable=too-many-lines,too-many-arguments,too-many-locals,too-many-statements
+# pylint: disable=cell-var-from-loop,consider-using-with
+
 import argparse
 import json
 import os
@@ -49,7 +52,6 @@ FEED_TYPES = {'feed_breast', 'feed_bottle'}
 TYPE_LABELS = {
     'sleep_start': 'начало сна',
     'sleep_end': 'окончание сна',
-    'sleep_interval': 'интервал сна',
     'feed_breast': 'кормление грудью',
     'feed_bottle': 'кормление из бутылочки',
     'pump': 'сцеживание',
@@ -71,7 +73,6 @@ TYPE_LABELS = {
 COUNT_QUESTIONS_BY_TYPE = {
     'sleep_start': 'Сколько раз малыш засыпал за всё время?',
     'sleep_end': 'Сколько раз малыш просыпался за всё время?',
-    'sleep_interval': 'Сколько интервалов сна записано за всё время?',
     'feed_breast': 'Сколько раз кормили грудью за всё время?',
     'feed_bottle': 'Сколько раз кормили из бутылочки за всё время?',
     'pump': 'Сколько раз было сцеживание за всё время?',
@@ -93,7 +94,6 @@ COUNT_QUESTIONS_BY_TYPE = {
 LATEST_QUESTIONS_BY_TYPE = {
     'sleep_start': 'Когда малыш последний раз засыпал?',
     'sleep_end': 'Когда малыш последний раз просыпался?',
-    'sleep_interval': 'Когда был последний записанный сон?',
     'feed_breast': 'Когда в последний раз кормили грудью?',
     'feed_bottle': 'Когда в последний раз кормили из бутылочки?',
     'pump': 'Когда в последний раз было сцеживание?',
@@ -199,10 +199,8 @@ def assert_benchmark_settings(settings: Settings) -> None:
     _assert_not_protected_database(settings.postgres, 'benchmark')
 
 
-def fetch_dev_events() -> list[dict[str, Any]]:
-    dev_settings = load_settings('DEVELOPMENT')
-    _assert_not_protected_database(dev_settings.postgres, 'snapshot')
-    with _connect(dev_settings) as conn:
+def _fetch_events(settings: Settings) -> list[dict[str, Any]]:
+    with _connect(settings) as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
             cursor.execute(
                 """
@@ -230,6 +228,12 @@ def fetch_dev_events() -> list[dict[str, Any]]:
             for key in EVENT_COLUMNS
         })
     return events
+
+
+def fetch_dev_events() -> list[dict[str, Any]]:
+    dev_settings = load_settings('DEVELOPMENT')
+    _assert_not_protected_database(dev_settings.postgres, 'snapshot')
+    return _fetch_events(dev_settings)
 
 
 def save_dataset(dataset_name: str, events: list[dict[str, Any]], cases: list[dict[str, Any]]) -> None:
@@ -379,48 +383,38 @@ def _sleep_end_summary(events: list[dict[str, Any]]) -> tuple[int, int]:
     return count, total_minutes
 
 
-def _sleep_interval_summary(events: list[dict[str, Any]]) -> tuple[int, int]:
-    total_minutes = 0
-    count = 0
-    for event in events:
-        if event['type'] != 'sleep_interval':
-            continue
-        payload = event.get('payload') or {}
-        started_at = payload.get('started_at')
-        ended_at = payload.get('ended_at')
-        if not started_at or not ended_at:
-            continue
-        minutes = int((_parse_datetime(ended_at) - _parse_datetime(started_at)).total_seconds() // 60)
-        if minutes >= 0:
-            total_minutes += minutes
-            count += 1
-    return count, total_minutes
-
-
-def _explicit_sleep_intervals(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _explicit_sleep_boundaries(
+    events: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], set[str]]:
     intervals = []
-    for event in events:
-        if event['type'] != 'sleep_interval':
+    boundary_event_ids = set()
+    by_id = {event['id']: event for event in events}
+    for wake_event in events:
+        if wake_event['type'] != 'sleep_end':
             continue
-        payload = event.get('payload') or {}
-        started_at = payload.get('started_at')
-        ended_at = payload.get('ended_at')
-        if not started_at or not ended_at:
+        payload = wake_event.get('payload') or {}
+        sleep_start_id = payload.get('sleep_start_id')
+        if not sleep_start_id:
             continue
-        started = _parse_datetime(started_at)
-        ended = _parse_datetime(ended_at)
+        start_event = by_id.get(str(sleep_start_id))
+        if start_event is None or start_event['type'] != 'sleep_start':
+            continue
+        boundary_event_ids.update({start_event['id'], wake_event['id']})
+        started = _parse_datetime(start_event['occurred_at'])
+        ended = _parse_datetime(wake_event['occurred_at'])
         duration_min = (ended - started).total_seconds() / 60.0
-        if duration_min >= 0:
-            intervals.append({
-                'id': event['id'],
-                'source_ids': [event['id']],
-                'started_at': _format_datetime(started),
-                'wake_event_id': event['id'],
-                'woke_at': _format_datetime(ended),
-                'duration_min': duration_min,
-                'wake_event_type': event['type'],
-            })
-    return intervals
+        if duration_min < 0:
+            continue
+        intervals.append({
+            'id': start_event['id'],
+            'source_ids': [start_event['id'], wake_event['id']],
+            'started_at': start_event['occurred_at'],
+            'wake_event_id': wake_event['id'],
+            'woke_at': wake_event['occurred_at'],
+            'duration_min': duration_min,
+            'wake_event_type': wake_event['type'],
+        })
+    return intervals, boundary_event_ids
 
 
 def _inferred_sleep_intervals(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -531,11 +525,13 @@ def _intervals_overlap(left: dict[str, Any], right: dict[str, Any]) -> bool:
 
 
 def _sleep_duration_intervals(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    explicit_intervals = _explicit_sleep_intervals(events)
+    explicit_intervals, explicit_boundary_event_ids = _explicit_sleep_boundaries(events)
     inferred_intervals = [
         interval
         for interval in _inferred_sleep_intervals(events)
-        if not any(_intervals_overlap(interval, explicit) for explicit in explicit_intervals)
+        if interval['id'] not in explicit_boundary_event_ids
+        and interval['wake_event_id'] not in explicit_boundary_event_ids
+        and not any(_intervals_overlap(interval, explicit) for explicit in explicit_intervals)
     ]
     return sorted(
         [*explicit_intervals, *inferred_intervals],
@@ -873,7 +869,15 @@ def generate_cases(
         expected={'type': top_type, 'source_id': latest_top_type['id']},
     ))
 
-    latest_events = sorted(events, key=lambda event: _parse_datetime(event['occurred_at']), reverse=True)[:3]
+    latest_events = sorted(
+        events,
+        key=lambda event: (
+            _parse_datetime(event['occurred_at']),
+            event.get('source_event_index') or 0,
+            event['id'],
+        ),
+        reverse=True,
+    )[:3]
     cases.append(_case(
         'latest-three-events',
         'sources',
@@ -904,7 +908,7 @@ def generate_cases(
                 number_tolerance=1,
                 sources=latest_night_sources,
                 query_contains_any=[latest_day.isoformat(), 'AT TIME ZONE', '+03'],
-                query_contains_all=['sleep_interval', 'started_at', 'wake_event_id'],
+                query_contains_all=['sleep_start', 'sleep_end', 'wake_event_id'],
                 expected={
                     'local_day': latest_day.isoformat(),
                     'night_window': [
@@ -925,7 +929,7 @@ def generate_cases(
                 'а пробуждения без записанного засыпания — от предыдущей не-заметки?'
             ),
             numbers=[inferred_sleep_count, inferred_sleep_minutes],
-            query_contains_any=['sleep_interval', 'sleep_start'],
+            query_contains_any=['sleep_start', 'sleep_end'],
             expected={
                 'rule': 'prompt_inferred_sleep',
                 'intervals': inferred_sleep_count,
@@ -960,18 +964,6 @@ def generate_cases(
                     'months_with_sleep_data': len(month_totals),
                 },
             ))
-    else:
-        sleep_interval_count, sleep_minutes = _sleep_interval_summary(events)
-        if sleep_interval_count:
-            cases.append(_case(
-                'sleep-interval-summary',
-                'sleep',
-                'Сколько отдельных интервалов сна записано и сколько минут сна они суммарно занимают?',
-                numbers=[sleep_interval_count, sleep_minutes],
-                query_contains_any=['sleep_interval'],
-                expected={'event_type': 'sleep_interval', 'intervals': sleep_interval_count, 'minutes': sleep_minutes},
-            ))
-
     return cases
 
 
@@ -987,6 +979,20 @@ def regenerate_cases(dataset_name: str = DEFAULT_DATASET_NAME) -> int:
     cases = generate_cases(events)
     save_dataset(dataset_name, events, cases)
     return len(cases)
+
+
+def migrate_dataset_through_benchmark_db(dataset_name: str = DEFAULT_DATASET_NAME) -> tuple[int, int]:
+    events = load_events(dataset_name)
+    benchmark_settings = load_settings(BENCHMARK_ENVIRONMENT)
+    assert_benchmark_settings(benchmark_settings)
+    reset_benchmark_database(benchmark_settings)
+    run_migrations('0002')
+    seed_benchmark_database(benchmark_settings, events)
+    run_migrations('head')
+    migrated_events = _fetch_events(benchmark_settings)
+    cases = generate_cases(migrated_events)
+    save_dataset(dataset_name, migrated_events, cases)
+    return len(migrated_events), len(cases)
 
 
 def create_benchmark_database(settings: Settings) -> None:
@@ -1005,11 +1011,38 @@ def create_benchmark_database(settings: Settings) -> None:
         conn.close()
 
 
-def run_migrations() -> None:
+def reset_benchmark_database(settings: Settings) -> None:
+    assert_benchmark_settings(settings)
+    conn = _connect(settings, db_name='postgres')
+    try:
+        conn.autocommit = True
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT pg_terminate_backend(pid)
+                FROM pg_stat_activity
+                WHERE datname = %s
+                  AND pid <> pg_backend_pid()
+                """,
+                [settings.postgres.db_name],
+            )
+            cursor.execute(
+                sql.SQL('DROP DATABASE IF EXISTS {}').format(
+                    sql.Identifier(settings.postgres.db_name)
+                )
+            )
+            cursor.execute(
+                sql.SQL('CREATE DATABASE {}').format(sql.Identifier(settings.postgres.db_name))
+            )
+    finally:
+        conn.close()
+
+
+def run_migrations(revision: str = 'head') -> None:
     env = os.environ.copy()
     env['ENVIRONMENT'] = BENCHMARK_ENVIRONMENT
     subprocess.run(
-        [sys.executable, '-m', 'alembic', 'upgrade', 'head'],
+        [sys.executable, '-m', 'alembic', 'upgrade', revision],
         cwd=PROJECT_ROOT,
         env=env,
         check=True,
@@ -1434,6 +1467,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     regenerate_parser.add_argument('--dataset', default=DEFAULT_DATASET_NAME)
 
+    migrate_dataset_parser = subparsers.add_parser(
+        'migrate-dataset-through-db',
+        help='Seed the pinned dataset at the previous schema, migrate it, and save the result',
+    )
+    migrate_dataset_parser.add_argument('--dataset', default=DEFAULT_DATASET_NAME)
+
     run_parser = subparsers.add_parser(
         'run',
         help='Run /ask benchmarks against the pinned dataset and benchmark DB',
@@ -1461,6 +1500,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             case_count = regenerate_cases(args.dataset)
             print(f'Cases regenerated from pinned events: {case_count}')
             print(f'Cases: {_cases_path(args.dataset)}')
+            return 0
+
+        if args.command == 'migrate-dataset-through-db':
+            event_count, case_count = migrate_dataset_through_benchmark_db(args.dataset)
+            print(f'Dataset migrated and saved: {event_count} events, {case_count} cases')
+            print(f'Events: {_events_path(args.dataset)}')
+            print(f'Cases:  {_cases_path(args.dataset)}')
             return 0
 
         if args.command == 'run':

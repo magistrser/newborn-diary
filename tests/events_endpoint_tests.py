@@ -45,6 +45,21 @@ async def test_create_sleep_start(application_client: TestClient) -> None:
     assert resp.json()['type'] == 'sleep_start'
 
 
+async def test_create_sleep_interval_is_rejected(application_client: TestClient) -> None:
+    payload = {
+        'type': 'sleep_interval',
+        'occurred_at': '2026-05-09T19:26:44Z',
+        'payload': {
+            'started_at': '2026-05-09T18:00:00Z',
+            'ended_at': '2026-05-09T19:00:00Z',
+        },
+    }
+
+    resp = application_client.post('/api/v1/events', json=payload)
+
+    assert resp.status_code == 422
+
+
 def _create_event(client: TestClient, **overrides: Any) -> dict[str, Any]:
     body = {
         'type': 'sleep_start',

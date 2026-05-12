@@ -1,6 +1,8 @@
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Callable
+from typing import Any, Callable
+
+from pydantic import ValidationError
 
 from application.dto import (
     CreateEventCommand,
@@ -74,9 +76,8 @@ class EventUseCase:
         new_payload = command.payload if command.payload is not None else existing.payload
         try:
             validate_payload_for_type(new_type, new_payload)
-        except ValueError as exc:
-            errors_method = getattr(exc, 'errors', None)
-            errors = errors_method() if callable(errors_method) else [{'msg': str(exc)}]
+        except ValidationError as exc:
+            errors: list[dict[str, Any]] = [dict(error) for error in exc.errors()]
             raise PayloadValidationError(errors) from exc
 
         persist_payload = (

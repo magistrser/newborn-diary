@@ -209,6 +209,7 @@ within that message.
 
 - **0001** — initial `events` table with `uq_events_source` on 3 columns
 - **0002** — added `source_event_index`; rebuilt `uq_events_source` to include it
+- **0003** — replaced legacy `sleep_interval` rows with paired `sleep_start`/`sleep_end` rows
 
 ---
 
@@ -235,8 +236,7 @@ All events share:
 | Type | Payload fields |
 |------|---------------|
 | `sleep_start` | _(none)_ |
-| `sleep_end` | `duration_min?: int` |
-| `sleep_interval` | `started_at: datetime`, `ended_at: datetime` |
+| `sleep_end` | `duration_min?: int`, `sleep_start_id?: str` |
 | `feed_breast` | `side: left\|right`, `duration_min?: int` |
 | `feed_bottle` | `volume_ml?: int`, `contents: formula\|expressed` |
 | `pump` | `volume_ml?: int`, `duration_min?: int` |
@@ -283,6 +283,10 @@ Converts one Russian Telegram message into a list of structured `Event` objects.
 "в 19:26", "с 13:00 до 15:30"), that time is used as `occurred_at` — taking the date and `+03:00`
 offset from `message_date`. If no explicit time is present, `message_date` is used as-is. This is
 explicitly documented in the system prompt and is the most important parsing rule.
+
+For known sleep ranges such as `19:30-20:20 сон` or `спал полтора часа`, the parser creates two
+events: `sleep_start` at the start and `sleep_end` at the end. The `sleep_end` payload links back
+to the generated start via `sleep_start_id` and includes `duration_min` when the duration is valid.
 
 **Context window:** The parser receives `recent_events` — up to 30 events from the preceding
 `context_window_hours` (default 12h). These appear in the prompt as a compact `HH:MM type payload`
@@ -395,8 +399,8 @@ uv run python cli.py import-telegram-export /path/to/result.json
   already exist for that `(chat_id, message_id)` pair, they are returned without re-parsing.
   This handles a race where the live bot and a bulk import might process the same message.
 
-- **`sleep_interval` duration math in the system prompt**: "слала полтора часа" → the LLM is
-  instructed to set `started_at = message_date - 90 min`, `ended_at = message_date`. This
+- **Sleep range duration math in the parser prompt**: "спал полтора часа" → the LLM is instructed
+  to create `sleep_start` at `message_date - 90 min` and `sleep_end` at `message_date`. This
   approximation is by design when no explicit start time is given.
 
 - **`note` as safety net**: if the LLM returns a completely unrecognisable event type, the parser

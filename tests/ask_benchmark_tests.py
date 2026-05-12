@@ -45,6 +45,25 @@ def _event(
     }
 
 
+def _sleep_pair(
+    start_id: str,
+    end_id: str,
+    started_at: str,
+    ended_at: str,
+    source_event_index: int = 0,
+) -> list[dict]:
+    return [
+        _event(start_id, started_at, 'sleep_start', {}, source_event_index),
+        _event(
+            end_id,
+            ended_at,
+            'sleep_end',
+            {'sleep_start_id': start_id},
+            source_event_index + 1,
+        ),
+    ]
+
+
 def test_generate_cases_uses_snapshot_values() -> None:
     events = [
         _event('00000000-0000-0000-0000-000000000001', '2026-04-30T06:00:00Z', 'diaper', {'kind': 'poo'}),
@@ -181,38 +200,35 @@ def test_generate_cases_adds_sleep_end_without_start_intervals() -> None:
     }
 
 
-def test_generate_cases_adds_latest_day_night_sleep_with_explicit_intervals() -> None:
+def test_generate_cases_adds_latest_day_night_sleep_with_explicit_boundaries() -> None:
     events = [
-        _event(
+        *_sleep_pair(
             '00000000-0000-0000-0000-000000000001',
-            '2026-05-11T21:34:22Z',
-            'sleep_interval',
-            {
-                'started_at': '2026-05-11T22:20:00+03:00',
-                'ended_at': '2026-05-12T00:30:00+03:00',
-            },
-        ),
-        _event(
             '00000000-0000-0000-0000-000000000002',
-            '2026-05-12T00:03:24Z',
-            'sleep_interval',
-            {
-                'started_at': '2026-05-12T00:50:00+03:00',
-                'ended_at': '2026-05-12T03:00:00+03:00',
-            },
+            '2026-05-11T19:20:00Z',
+            '2026-05-11T21:30:00Z',
         ),
-        _event('00000000-0000-0000-0000-000000000003', '2026-05-12T00:30:00Z', 'sleep_start', {}),
-        _event('00000000-0000-0000-0000-000000000004', '2026-05-12T01:22:27Z', 'sleep_end', {}),
-        _event('00000000-0000-0000-0000-000000000005', '2026-05-12T01:30:38Z', 'sleep_start', {}),
-        _event('00000000-0000-0000-0000-000000000006', '2026-05-12T02:37:55Z', 'sleep_end', {}),
+        *_sleep_pair(
+            '00000000-0000-0000-0000-000000000003',
+            '00000000-0000-0000-0000-000000000004',
+            '2026-05-11T21:50:00Z',
+            '2026-05-12T00:00:00Z',
+        ),
+        _event('00000000-0000-0000-0000-000000000005', '2026-05-12T00:30:00Z', 'sleep_start', {}),
+        _event('00000000-0000-0000-0000-000000000006', '2026-05-12T01:22:27Z', 'sleep_end', {}),
+        _event('00000000-0000-0000-0000-000000000007', '2026-05-12T01:30:38Z', 'sleep_start', {}),
+        _event('00000000-0000-0000-0000-000000000008', '2026-05-12T02:37:55Z', 'sleep_end', {}),
+        *_sleep_pair(
+            '00000000-0000-0000-0000-000000000009',
+            '00000000-0000-0000-0000-000000000010',
+            '2026-05-12T04:20:00Z',
+            '2026-05-12T05:30:00Z',
+        ),
         _event(
-            '00000000-0000-0000-0000-000000000007',
+            '00000000-0000-0000-0000-000000000011',
             '2026-05-12T05:37:05Z',
-            'sleep_interval',
-            {
-                'started_at': '2026-05-12T07:20:00+03:00',
-                'ended_at': '2026-05-12T08:30:00+03:00',
-            },
+            'diaper',
+            {'kind': 'pee'},
         ),
     ]
 
@@ -231,26 +247,25 @@ def test_generate_cases_adds_latest_day_night_sleep_with_explicit_intervals() ->
             '00000000-0000-0000-0000-000000000004',
             '00000000-0000-0000-0000-000000000005',
             '00000000-0000-0000-0000-000000000006',
+            '00000000-0000-0000-0000-000000000007',
+            '00000000-0000-0000-0000-000000000008',
         ],
     }
     assert night_case['checks']['numbers'] == [380]
     assert night_case['checks']['number_tolerance'] == 1
     assert night_case['checks']['sources'] == night_case['expected']['source_ids']
-    assert night_case['checks']['query_contains_all'] == ['sleep_interval', 'started_at', 'wake_event_id']
+    assert night_case['checks']['query_contains_all'] == ['sleep_start', 'sleep_end', 'wake_event_id']
     assert summary_case['expected'] == {'rule': 'prompt_inferred_sleep', 'intervals': 5, 'minutes': 450}
 
 
-def test_generate_cases_does_not_double_count_inferred_sleep_overlapping_explicit_interval() -> None:
+def test_generate_cases_does_not_double_count_inferred_sleep_overlapping_explicit_boundary() -> None:
     events = [
         _event('00000000-0000-0000-0000-000000000001', '2026-05-11T18:57:10Z', 'sleep_start', {}),
-        _event(
+        *_sleep_pair(
             '00000000-0000-0000-0000-000000000002',
-            '2026-05-11T21:34:22Z',
-            'sleep_interval',
-            {
-                'started_at': '2026-05-11T22:20:00+03:00',
-                'ended_at': '2026-05-12T00:30:00+03:00',
-            },
+            '00000000-0000-0000-0000-000000000003',
+            '2026-05-11T19:20:00Z',
+            '2026-05-11T21:30:00Z',
         ),
     ]
 
@@ -259,8 +274,26 @@ def test_generate_cases_does_not_double_count_inferred_sleep_overlapping_explici
     summary_case = next(case for case in cases if case['id'] == 'inferred-sleep-duration-summary')
 
     assert night_case['expected']['minutes'] == 130
-    assert night_case['expected']['source_ids'] == ['00000000-0000-0000-0000-000000000002']
+    assert night_case['expected']['source_ids'] == [
+        '00000000-0000-0000-0000-000000000002',
+        '00000000-0000-0000-0000-000000000003',
+    ]
     assert summary_case['expected'] == {'rule': 'prompt_inferred_sleep', 'intervals': 1, 'minutes': 130}
+
+
+def test_sleep_duration_ignores_invalid_explicit_boundary_without_fallback_reuse() -> None:
+    events = [
+        _event('00000000-0000-0000-0000-000000000001', '2026-05-10T10:00:00Z', 'feed_breast', {'side': 'left'}),
+        *_sleep_pair(
+            '00000000-0000-0000-0000-000000000002',
+            '00000000-0000-0000-0000-000000000003',
+            '2026-05-10T12:00:00Z',
+            '2026-05-10T11:00:00Z',
+        ),
+        _event('00000000-0000-0000-0000-000000000004', '2026-05-10T13:00:00Z', 'diaper', {'kind': 'pee'}),
+    ]
+
+    assert ask._sleep_duration_intervals(events) == []  # pylint: disable=protected-access
 
 
 def test_generate_cases_adds_today_case_after_pinned_snapshot() -> None:
@@ -281,8 +314,8 @@ def test_generate_cases_adds_event_time_case_when_raw_text_has_different_time() 
         _event(
             '00000000-0000-0000-0000-000000000001',
             '2026-05-11T21:34:22Z',
-            'sleep_interval',
-            {'started_at': '2026-05-11T19:20:00Z', 'ended_at': '2026-05-11T21:30:00Z'},
+            'sleep_start',
+            {},
         )
         | {'raw_text': '22:20-00:30 сон'},
         _event(

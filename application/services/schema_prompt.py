@@ -20,7 +20,6 @@ from domain.event import (
     NotePayload,
     PumpPayload,
     SleepEndPayload,
-    SleepIntervalPayload,
     SleepStartPayload,
     SpitUpPayload,
     TemperaturePayload,
@@ -34,7 +33,6 @@ from domain.event import (
 _PAYLOAD_BY_TYPE: dict[EventType, type[BaseModel]] = {
     EventType.sleep_start: SleepStartPayload,
     EventType.sleep_end: SleepEndPayload,
-    EventType.sleep_interval: SleepIntervalPayload,
     EventType.feed_breast: FeedBreastPayload,
     EventType.feed_bottle: FeedBottlePayload,
     EventType.pump: PumpPayload,
@@ -174,6 +172,9 @@ FROM events
 ORDER BY occurred_at ASC, source_event_index ASC, id ASC;
 ```
 
+Для последних событий используй обратный порядок с теми же tie-breaker полями:
+`ORDER BY occurred_at DESC, source_event_index DESC, id DESC`.
+
 В ответе показывай локальное время из `local_occurred_at`/`occurred_at AT TIME ZONE '{tz}'`.
 Если также показываешь `raw_text`, оставляй времена внутри него только как часть исходного текста,
 не как время события.
@@ -247,19 +248,21 @@ SELECT COUNT(DISTINCT session_id) AS feeding_count FROM sessions;
 ## Подсчёт сна и длительности сна
 
 Пользователь не всегда явно записывает начало или окончание сна. Если нужно посчитать длительность сна:
-- сначала учитывай явные записи `sleep_interval`: это уже готовые интервалы сна, их начало и конец
-  лежат в `payload->>'started_at'` и `payload->>'ended_at'`;
+- сначала учитывай явные пары `sleep_start` + `sleep_end`, где у `sleep_end`
+  есть `payload->>'sleep_start_id'`: это уже готовые границы одного сна;
 - считай сон от события `sleep_start` до следующего события после него,
   у которого `type NOT IN ('sleep_start', 'note')`;
 - если есть `sleep_end`, но он не является пробуждением для уже посчитанного `sleep_start`,
   считай, что ребёнок спал от предыдущей записи с `type <> 'note'` до этого `sleep_end`.
-Явные `sleep_interval` важнее выведенных интервалов: не добавляй выведенный интервал,
-если он пересекается по времени с любым `sleep_interval`, иначе сон будет посчитан дважды.
+Явные пары `sleep_start` + `sleep_end` важнее выведенных интервалов: не добавляй выведенный интервал,
+если он пересекается по времени с любой явной парой, иначе сон будет посчитан дважды.
+Если явная пара имеет конец раньше начала, не считай её длительность и не используй её события
+как границы для выведения других снов.
 События `note` — это заметки, они не являются началом или окончанием сна и не должны участвовать
 в расчёте сна как границы интервала.
 Не суммируй `payload->>'duration_min'` из всех типов событий: поле `duration_min` есть не только у сна.
 Не оставляй `...` в SQL. Для любых вопросов о длительности сна копируй весь набор CTE ниже:
-`explicit_sleep_intervals`, `start_based_sleeps`, `sleep_end_without_start`, затем `inferred_sleeps`.
+`explicit_sleep_boundaries`, `start_based_sleeps`, `sleep_end_without_start`, затем `inferred_sleeps`.
 В `sleep_end_without_start` сначала найди предыдущую запись с `p.type <> 'note'`, а потом фильтруй
 `previous_event.type <> 'sleep_start'`. Не добавляй `p.type <> 'sleep_start'` внутрь поиска
 предыдущей записи. Чтобы не считать `sleep_end` дважды, используй именно условие
@@ -269,28 +272,35 @@ SELECT COUNT(DISTINCT session_id) AS feeding_count FROM sessions;
 Если пользователь спрашивает "сегодня ночью" или "сегодняшней ночью", считай ночной сон,
 относящийся к сегодняшней локальной дате: с 20:00 предыдущего календарного дня до 06:00 сегодняшнего дня
 в часовом поясе пользователя. Фильтруй уже построенные интервалы сна по `started_at`.
-Если пользователь просит показать события, включай id всех использованных событий: для `sleep_interval`
-это id самого интервала, для сна от `sleep_start` до пробуждения — id начала и `wake_event_id`.
+Если пользователь просит показать события, включай id всех использованных событий:
+для сна от `sleep_start` до пробуждения — id начала и `wake_event_id`.
 Не агрегируй использованные события в JSON/array для таких вопросов: верни строки интервалов с колонками
 `id`, `wake_event_id`, `started_at`, `woke_at`, `duration_min`, чтобы источники попали в ответ.
 
 Базовый CTE для длительности сна:
 
 ```sql
-WITH explicit_sleep_intervals AS (
+WITH explicit_sleep_boundaries_all AS (
   SELECT
-    e.id AS id,
-    (e.payload->>'started_at')::TIMESTAMPTZ AS started_at,
-    e.id AS wake_event_id,
-    (e.payload->>'ended_at')::TIMESTAMPTZ AS woke_at,
-    EXTRACT(EPOCH FROM (
-      (e.payload->>'ended_at')::TIMESTAMPTZ - (e.payload->>'started_at')::TIMESTAMPTZ
-    )) / 60.0 AS duration_min
-  FROM events e
-  WHERE e.type = 'sleep_interval'
-    AND (e.payload->>'started_at') IS NOT NULL
-    AND (e.payload->>'ended_at') IS NOT NULL
-    AND (e.payload->>'ended_at')::TIMESTAMPTZ >= (e.payload->>'started_at')::TIMESTAMPTZ
+    s.id AS id,
+    s.occurred_at AS started_at,
+    wake.id AS wake_event_id,
+    wake.occurred_at AS woke_at,
+    EXTRACT(EPOCH FROM (wake.occurred_at - s.occurred_at)) / 60.0 AS duration_min
+  FROM events wake
+  JOIN events s ON s.id::TEXT = wake.payload->>'sleep_start_id'
+  WHERE wake.type = 'sleep_end'
+    AND s.type = 'sleep_start'
+),
+explicit_sleep_boundaries AS (
+  SELECT *
+  FROM explicit_sleep_boundaries_all
+  WHERE woke_at >= started_at
+),
+explicit_sleep_boundary_events AS (
+  SELECT id AS event_id FROM explicit_sleep_boundaries_all
+  UNION
+  SELECT wake_event_id AS event_id FROM explicit_sleep_boundaries_all
 ),
 start_based_sleeps_raw AS (
   SELECT
@@ -313,6 +323,9 @@ start_based_sleeps_raw AS (
         )
       )
       AND e.type NOT IN ('sleep_start', 'note')
+      AND NOT EXISTS (
+        SELECT 1 FROM explicit_sleep_boundary_events boundary WHERE boundary.event_id = e.id
+      )
     ORDER BY
       e.occurred_at ASC,
       CASE WHEN e.occurred_at = s.occurred_at THEN e.source_event_index ELSE 0 END ASC,
@@ -320,13 +333,16 @@ start_based_sleeps_raw AS (
     LIMIT 1
   ) wake
   WHERE s.type = 'sleep_start'
+    AND NOT EXISTS (
+      SELECT 1 FROM explicit_sleep_boundary_events boundary WHERE boundary.event_id = s.id
+    )
 ),
 start_based_sleeps AS (
   SELECT *
   FROM start_based_sleeps_raw inferred
   WHERE NOT EXISTS (
     SELECT 1
-    FROM explicit_sleep_intervals explicit
+    FROM explicit_sleep_boundaries explicit
     WHERE inferred.started_at < explicit.woke_at
       AND inferred.woke_at > explicit.started_at
   )
@@ -353,6 +369,9 @@ sleep_end_without_start_raw AS (
           )
         )
         AND p.type <> 'note'
+        AND NOT EXISTS (
+          SELECT 1 FROM explicit_sleep_boundary_events boundary WHERE boundary.event_id = p.id
+        )
       )
     ORDER BY
       p.occurred_at DESC,
@@ -361,6 +380,9 @@ sleep_end_without_start_raw AS (
     LIMIT 1
   ) previous_event
   WHERE e.type = 'sleep_end'
+    AND NOT EXISTS (
+      SELECT 1 FROM explicit_sleep_boundary_events boundary WHERE boundary.event_id = e.id
+    )
     AND previous_event.type <> 'sleep_start'
     AND NOT EXISTS (
       SELECT 1 FROM start_based_sleeps_raw counted WHERE counted.wake_event_id = e.id
@@ -371,13 +393,13 @@ sleep_end_without_start AS (
   FROM sleep_end_without_start_raw inferred
   WHERE NOT EXISTS (
     SELECT 1
-    FROM explicit_sleep_intervals explicit
+    FROM explicit_sleep_boundaries explicit
     WHERE inferred.started_at < explicit.woke_at
       AND inferred.woke_at > explicit.started_at
   )
 ),
 inferred_sleeps AS (
-  SELECT id, started_at, wake_event_id, woke_at, duration_min FROM explicit_sleep_intervals
+  SELECT id, started_at, wake_event_id, woke_at, duration_min FROM explicit_sleep_boundaries
   UNION ALL
   SELECT id, started_at, wake_event_id, woke_at, duration_min FROM start_based_sleeps
   UNION ALL

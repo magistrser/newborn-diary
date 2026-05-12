@@ -6,6 +6,7 @@ Explicit times found in the message body take precedence over the message send t
 import json
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -37,7 +38,6 @@ _SYSTEM_PROMPT = """\
 |---|---|---|
 | sleep_start | {} | ребёнок заснул («Заснул», «Спит», «Уснул») |
 | sleep_end | duration_min?: int | ребёнок проснулся («Проснулся», «Встал»). Если в скобках указано время сна — запиши в duration_min |  # noqa: E501
-| sleep_interval | started_at: ISO8601, ended_at: ISO8601 | известен весь промежуток сна («спал на прогулке полтора часа», «спал с 13:00 до 15:30») |  # noqa: E501
 
 ### Кормление
 | type | поля payload | когда использовать |
@@ -65,7 +65,7 @@ _SYSTEM_PROMPT = """\
 |---|---|---|
 | bath | duration_min?: int | купание («Купали», «Ванна») |
 | tummy_time | duration_min?: int | время на животике («На животике», «Лежал на животе») |
-| walk | duration_min?: int | прогулка («Гуляли», «Прогулка»). НЕ создавай walk если в сообщении речь только о сне на прогулке — там используй sleep_interval |  # noqa: E501
+| walk | duration_min?: int | прогулка («Гуляли», «Прогулка»). НЕ создавай walk если в сообщении речь только о сне на прогулке — там создай sleep_start и sleep_end |  # noqa: E501
 
 ### Симптомы
 | type | поля payload | когда использовать |
@@ -86,8 +86,10 @@ _SYSTEM_PROMPT = """\
    Если в ТЕКСТЕ сообщения явно указано время (напр. «13:25», «в 19:26», «с 13:00 до 15:30») — \
 используй ЕГО как occurred_at, взяв ДАТУ и СМЕЩЕНИЕ +03:00 из message_date.
 2. Если явного времени нет — используй message_date как occurred_at.
-3. Для sleep_interval: если написано «полтора часа» (1.5 ч) и нет явного начала, \
-вычисли started_at = message_date - 90 минут, ended_at = message_date.
+3. Для известного промежутка сна НЕ создавай отдельный тип интервала. Создай ДВА события:
+   `sleep_start` в начале сна и `sleep_end` в конце сна.
+   Если написано «полтора часа» (1.5 ч) и нет явного начала, вычисли начало как \
+message_date - 90 минут, а конец как message_date.
 4. Все datetime в формате ISO 8601 со смещением +03:00.
 
 ## Правила разбора
@@ -100,7 +102,7 @@ _SYSTEM_PROMPT = """\
 - **Используй контекст и здравый смысл.** Не требуй точного ключевого слова — если смысл понятен, выбирай \
 подходящий тип. Например: «правая», «правой» → feed_breast side=right; «пописал», «пипи», «пиписал» → diaper \
 kind=pee; «покакал», «какашка» → diaper kind=poo; «пи+ка», «пи и ка» → diaper kind=both; «поспал час» → \
-sleep_interval; «вырубился» → sleep_start; «очнулся» → sleep_end; «укол», «вакцина» → vaccination.
+sleep_start + sleep_end; «вырубился» → sleep_start; «очнулся» → sleep_end; «укол», «вакцина» → vaccination.
 - **`note` — последнее средство.** Используй его только если даже по контексту невозможно определить тип события.
 
 ## Формат ответа
@@ -122,8 +124,8 @@ text: "Проснулся\\nПодгузник"
 message_date: "2026-05-09T18:16:06+03:00"
 text: "Спал на прогулке полтора-два часа\\nБыла левая\\nПотом страдания папы\\nПравая"
 → {"events": [
-  {"type": "sleep_interval", "occurred_at": "2026-05-09T18:16:06+03:00",
-   "payload": {"started_at": "2026-05-09T16:46:06+03:00", "ended_at": "2026-05-09T18:16:06+03:00"}},
+  {"type": "sleep_start", "occurred_at": "2026-05-09T16:46:06+03:00", "payload": {}},
+  {"type": "sleep_end", "occurred_at": "2026-05-09T18:16:06+03:00", "payload": {"duration_min": 90}},
   {"type": "feed_breast", "occurred_at": "2026-05-09T18:16:06+03:00", "payload": {"side": "left"}},
   {"type": "father_calming", "occurred_at": "2026-05-09T18:16:06+03:00", "payload": {}},
   {"type": "feed_breast", "occurred_at": "2026-05-09T18:16:06+03:00", "payload": {"side": "right"}}
@@ -234,6 +236,14 @@ class _ParseResult(BaseModel):
     events: list[_ParsedEvent]
 
 
+@dataclass(frozen=True)
+class _EventSource:
+    text: str
+    source_type: str
+    source_message_id: str | None
+    source_chat_id: int | None
+
+
 def _compact_event_summary(events: list[Event]) -> str:
     lines = []
     for e in events:
@@ -248,6 +258,7 @@ def _make_note(
     source_type: str,
     source_message_id: str | None,
     source_chat_id: int | None,
+    source_event_index: int = 0,
 ) -> Event:
     return Event(
         id=uuid.uuid4(),
@@ -259,8 +270,46 @@ def _make_note(
         source_type=source_type,
         source_message_id=source_message_id,
         source_chat_id=source_chat_id,
+        source_event_index=source_event_index,
         parser_version='llm-v1',
     )
+
+
+def _parse_payload_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except ValueError:
+        return None
+
+
+def _sleep_duration_min(started_at: datetime, ended_at: datetime) -> int | None:
+    duration = round((ended_at - started_at).total_seconds() / 60)
+    return duration if duration >= 0 else None
+
+
+def _link_sleep_boundaries(events: list[Event]) -> None:
+    pending_start: Event | None = None
+    for event in events:
+        if event.type == EventType.sleep_start:
+            pending_start = event
+            continue
+
+        if event.type != EventType.sleep_end or pending_start is None:
+            continue
+
+        payload = dict(event.payload)
+        if payload.get('sleep_start_id') is None:
+            payload['sleep_start_id'] = str(pending_start.id)
+        if payload.get('duration_min') is None:
+            duration_min = _sleep_duration_min(pending_start.occurred_at, event.occurred_at)
+            if duration_min is not None:
+                payload['duration_min'] = duration_min
+        event.payload = payload
+        pending_start = None
 
 
 logger = logging.getLogger(__name__)
@@ -292,31 +341,71 @@ class EventParser:
 
     def _build_event(
         self,
-        parsed: _ParsedEvent,
-        text: str,
-        source_type: str,
-        source_message_id: str | None,
-        source_chat_id: int | None,
+        event_type: EventType,
+        occurred_at: datetime,
+        payload: dict,
+        source: _EventSource,
         index: int,
-    ) -> Event | None:
+    ) -> Event:
+        return Event(
+            id=uuid.uuid4(),
+            occurred_at=occurred_at,
+            recorded_at=datetime.now(timezone.utc),
+            type=event_type,
+            payload=payload,
+            raw_text=source.text,
+            source_type=source.source_type,
+            source_message_id=source.source_message_id,
+            source_chat_id=source.source_chat_id,
+            source_event_index=index,
+            parser_version='llm-v1',
+        )
+
+    def _build_events(
+        self,
+        parsed: _ParsedEvent,
+        source: _EventSource,
+        index: int,
+    ) -> list[Event]:
+        if parsed.type == 'sleep_interval':
+            started_at = _parse_payload_datetime(parsed.payload.get('started_at'))
+            ended_at = _parse_payload_datetime(parsed.payload.get('ended_at'))
+            if started_at is None or ended_at is None:
+                return []
+            start_event = self._build_event(
+                EventType.sleep_start,
+                started_at,
+                {},
+                source,
+                index,
+            )
+            end_payload: dict[str, object] = {'sleep_start_id': str(start_event.id)}
+            duration_min = _sleep_duration_min(started_at, ended_at)
+            if duration_min is not None:
+                end_payload['duration_min'] = duration_min
+            end_event = self._build_event(
+                EventType.sleep_end,
+                ended_at,
+                end_payload,
+                source,
+                index + 1,
+            )
+            return [start_event, end_event]
+
         try:
             etype = EventType(parsed.type)
             payload = _normalise_payload(etype, parsed.payload)
-            return Event(
-                id=uuid.uuid4(),
-                occurred_at=parsed.occurred_at,
-                recorded_at=datetime.now(timezone.utc),
-                type=etype,
-                payload=payload,
-                raw_text=text,
-                source_type=source_type,
-                source_message_id=source_message_id,
-                source_chat_id=source_chat_id,
-                source_event_index=index,
-                parser_version='llm-v1',
-            )
+            return [
+                self._build_event(
+                    etype,
+                    parsed.occurred_at,
+                    payload,
+                    source,
+                    index,
+                )
+            ]
         except (ValueError, KeyError):
-            return None
+            return []
 
     async def parse_message(
         self,
@@ -334,16 +423,36 @@ class EventParser:
             return [_make_note(text, message_date, source_type, source_message_id, source_chat_id)]
 
         events = []
-        for idx, parsed in enumerate(result.events):
-            event = self._build_event(parsed, text, source_type, source_message_id, source_chat_id, idx)
-            if event is not None:
-                events.append(event)
+        source_event_index = 0
+        source = _EventSource(text, source_type, source_message_id, source_chat_id)
+        for parsed in result.events:
+            built_events = self._build_events(
+                parsed,
+                source,
+                source_event_index,
+            )
+            if built_events:
+                events.extend(built_events)
+                source_event_index += len(built_events)
             else:
                 events.append(_make_note(
-                    text, parsed.occurred_at, source_type, source_message_id, source_chat_id,
+                    text,
+                    parsed.occurred_at,
+                    source_type,
+                    source_message_id,
+                    source_chat_id,
+                    source_event_index,
                 ))
+                source_event_index += 1
 
         if not events:
-            events.append(_make_note(text, message_date, source_type, source_message_id, source_chat_id))
+            events.append(_make_note(
+                text,
+                message_date,
+                source_type,
+                source_message_id,
+                source_chat_id,
+            ))
 
+        _link_sleep_boundaries(events)
         return events

@@ -3,14 +3,12 @@ from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel
-from pydantic import ValidationError
 
 
 class EventType(StrEnum):
     # Sleep
     sleep_start = 'sleep_start'
     sleep_end = 'sleep_end'
-    sleep_interval = 'sleep_interval'
     # Feeding
     feed_breast = 'feed_breast'
     feed_bottle = 'feed_bottle'
@@ -83,11 +81,7 @@ class SleepStartPayload(BaseModel):
 
 class SleepEndPayload(BaseModel):
     duration_min: int | None = None
-
-
-class SleepIntervalPayload(BaseModel):
-    started_at: datetime
-    ended_at: datetime
+    sleep_start_id: str | None = None
 
 
 class FeedBreastPayload(BaseModel):
@@ -186,7 +180,6 @@ class Event(BaseModel):
 PAYLOAD_MODEL_BY_TYPE: dict[EventType, type[BaseModel]] = {
     EventType.sleep_start: SleepStartPayload,
     EventType.sleep_end: SleepEndPayload,
-    EventType.sleep_interval: SleepIntervalPayload,
     EventType.feed_breast: FeedBreastPayload,
     EventType.feed_bottle: FeedBottlePayload,
     EventType.pump: PumpPayload,
@@ -208,7 +201,4 @@ PAYLOAD_MODEL_BY_TYPE: dict[EventType, type[BaseModel]] = {
 
 
 def validate_payload_for_type(event_type: EventType, payload: dict) -> None:
-    try:
-        PAYLOAD_MODEL_BY_TYPE[event_type].model_validate(payload)
-    except ValidationError:
-        raise
+    PAYLOAD_MODEL_BY_TYPE[event_type].model_validate(payload)

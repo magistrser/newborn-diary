@@ -30,7 +30,7 @@ class LLMClient:
             timeout=llm_settings.request_timeout_sec,
         )
 
-    def _connection_error(self, exc: APIConnectionError) -> RuntimeError:
+    def _connection_error(self, _exc: APIConnectionError) -> RuntimeError:
         return RuntimeError(
             'Could not connect to OpenAI-compatible API '
             f'at {self._settings.base_url!r} using model {self._settings.model!r}. '

@@ -45,6 +45,7 @@ def test_sql_prompt_uses_occurred_at_as_event_time_not_raw_text() -> None:
     assert 'не извлекай время события из `raw_text`' in prompt
     assert "occurred_at AT TIME ZONE 'Europe/Moscow' AS local_occurred_at" in prompt
     assert 'ORDER BY occurred_at ASC, source_event_index ASC, id ASC' in prompt
+    assert 'ORDER BY occurred_at DESC, source_event_index DESC, id DESC' in prompt
 
 
 def test_sql_prompt_describes_inferred_sleep_duration_rule() -> None:
@@ -56,28 +57,31 @@ def test_sql_prompt_describes_inferred_sleep_duration_rule() -> None:
     )
 
     assert 'считай сон от события `sleep_start` до следующего события после него' in prompt
-    assert 'сначала учитывай явные записи `sleep_interval`' in prompt
-    assert "payload->>'started_at'" in prompt
-    assert "payload->>'ended_at'" in prompt
+    assert 'сначала учитывай явные пары `sleep_start` + `sleep_end`' in prompt
+    assert "payload->>'sleep_start_id'" in prompt
     assert "у которого `type NOT IN ('sleep_start', 'note')`" in prompt
-    assert 'если он пересекается по времени с любым `sleep_interval`' in prompt
+    assert 'если он пересекается по времени с любой явной парой' in prompt
+    assert 'Если явная пара имеет конец раньше начала' in prompt
     assert "считай, что ребёнок спал от предыдущей записи с `type <> 'note'`" in prompt
     assert 'События `note` — это заметки' in prompt
     assert 'Не оставляй `...` в SQL' in prompt
-    assert '`explicit_sleep_intervals`, `start_based_sleeps`, `sleep_end_without_start`' in prompt
+    assert '`explicit_sleep_boundaries`, `start_based_sleeps`, `sleep_end_without_start`' in prompt
     assert 'Не добавляй `p.type <> \'sleep_start\'` внутрь поиска' in prompt
     assert 'source_event_index SMALLINT NOT NULL DEFAULT 0' in prompt
-    assert 'WITH explicit_sleep_intervals AS' in prompt
+    assert 'WITH explicit_sleep_boundaries_all AS' in prompt
+    assert 'explicit_sleep_boundary_events AS' in prompt
     assert 'start_based_sleeps_raw AS' in prompt
     assert 'sleep_end_without_start_raw AS' in prompt
-    assert "(e.payload->>'ended_at')::TIMESTAMPTZ >= (e.payload->>'started_at')::TIMESTAMPTZ" in prompt
+    assert 'woke_at >= started_at' in prompt
     assert 'inferred.started_at < explicit.woke_at' in prompt
     assert 'inferred.woke_at > explicit.started_at' in prompt
-    assert "WHERE e.type = 'sleep_interval'" in prompt
+    assert "wake.type = 'sleep_end'" in prompt
+    assert "s.type = 'sleep_start'" in prompt
     assert "AND e.type NOT IN ('sleep_start', 'note')" in prompt
     assert 'AND e.source_message_id IS NOT DISTINCT FROM s.source_message_id' in prompt
     assert 'CASE WHEN e.occurred_at = s.occurred_at THEN e.source_event_index ELSE 0 END ASC' in prompt
     assert "AND p.type <> 'note'" in prompt
+    assert 'boundary.event_id = p.id' in prompt
     assert "WHERE e.type = 'sleep_end'" in prompt
     assert 'previous_event.type <> \'sleep_start\'' in prompt
     assert 'start_based_sleeps_raw counted WHERE counted.wake_event_id = e.id' in prompt

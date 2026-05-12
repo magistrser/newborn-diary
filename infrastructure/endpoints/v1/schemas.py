@@ -23,7 +23,6 @@ from domain.event import (
     NotePayload,
     PumpPayload,
     SleepEndPayload,
-    SleepIntervalPayload,
     SleepStartPayload,
     SpitUpPayload,
     SpitUpVolume,
@@ -54,11 +53,6 @@ class SleepStartCreate(_EventCreateBase):
 class SleepEndCreate(_EventCreateBase):
     type: Literal[EventType.sleep_end] = EventType.sleep_end
     payload: SleepEndPayload
-
-
-class SleepIntervalCreate(_EventCreateBase):
-    type: Literal[EventType.sleep_interval] = EventType.sleep_interval
-    payload: SleepIntervalPayload
 
 
 # ── Feeding ───────────────────────────────────────────────────────────────────
@@ -163,7 +157,6 @@ class NoteCreate(_EventCreateBase):
 EventCreateRequest = Annotated[
     SleepStartCreate
     | SleepEndCreate
-    | SleepIntervalCreate
     | FeedBreastCreate
     | FeedBottleCreate
     | PumpCreate
@@ -225,7 +218,6 @@ class EventPatchRequest(BaseModel):
 _TYPE_TO_PAYLOAD_MODEL: dict[EventType, type[BaseModel]] = {
     EventType.sleep_start: SleepStartPayload,
     EventType.sleep_end: SleepEndPayload,
-    EventType.sleep_interval: SleepIntervalPayload,
     EventType.feed_breast: FeedBreastPayload,
     EventType.feed_bottle: FeedBottlePayload,
     EventType.pump: PumpPayload,

@@ -10,6 +10,8 @@ from infrastructure.models import Base
 from main import app
 from settings import PostgresSettings, settings
 
+# pylint: disable=redefined-outer-name,unused-argument
+
 
 def _assert_test_database(postgres: PostgresSettings) -> None:
     if 'test' not in postgres.db_name:

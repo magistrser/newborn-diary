@@ -4,11 +4,11 @@
     "category": "counts",
     "question": "Сколько всего записей в дневнике?",
     "expected": {
-      "total_events": 583
+      "total_events": 592
     },
     "checks": {
       "numbers": [
-        583
+        592
       ],
       "sources": [],
       "answer_contains": [],
@@ -80,11 +80,11 @@
         "2026-05-11",
         "2026-05-17"
       ],
-      "total_events": 52
+      "total_events": 56
     },
     "checks": {
       "numbers": [
-        52
+        56
       ],
       "sources": [],
       "answer_contains": [],
@@ -111,8 +111,8 @@
         "2026-05-17"
       ],
       "day_counts": {
-        "2026-05-11": 39,
-        "2026-05-12": 13,
+        "2026-05-11": 41,
+        "2026-05-12": 15,
         "2026-05-13": 0,
         "2026-05-14": 0,
         "2026-05-15": 0,
@@ -122,8 +122,8 @@
     },
     "checks": {
       "numbers": [
-        39,
-        13,
+        41,
+        15,
         0,
         0,
         0,
@@ -154,12 +154,12 @@
         "2026-05-11",
         "2026-05-17"
       ],
-      "average_events_per_day": 7,
+      "average_events_per_day": 8,
       "days": 7
     },
     "checks": {
       "numbers": [
-        7
+        8
       ],
       "sources": [],
       "answer_contains": [],
@@ -186,12 +186,12 @@
         "2026-05-17"
       ],
       "local_day": "2026-05-11",
-      "count": 39
+      "count": 41
     },
     "checks": {
       "numbers": [
         11,
-        39
+        41
       ],
       "sources": [],
       "answer_contains": [],
@@ -206,44 +206,6 @@
         "GROUP BY"
       ],
       "query_contains_all": []
-    }
-  },
-  {
-    "id": "latest-day-first-event-time-from-occurred-at",
-    "category": "event_time",
-    "question": "Покажи первое событие за 12 мая 2026: дату, локальное время из occurred_at, occurred_at UTC и raw_text.",
-    "expected": {
-      "source_id": "e52e1647-1285-42a4-baad-29833d681539",
-      "local_day": "2026-05-12",
-      "local_time": "00:34",
-      "raw_text_time_example": "22:20",
-      "rule": "event time must come from occurred_at, not raw_text"
-    },
-    "checks": {
-      "numbers": [],
-      "sources": [
-        "e52e1647-1285-42a4-baad-29833d681539"
-      ],
-      "answer_contains": [
-        "00:34"
-      ],
-      "answer_contains_any": [
-        "2026-05-12",
-        "12 мая 2026"
-      ],
-      "number_tolerance": 0,
-      "max_iterations": 5,
-      "requires_sql": true,
-      "query_contains_any": [
-        "2026-05-12",
-        "AT TIME ZONE",
-        "+03"
-      ],
-      "query_contains_all": [
-        "occurred_at",
-        "raw_text",
-        "ORDER BY"
-      ]
     }
   },
   {
@@ -364,16 +326,16 @@
     "question": "Покажи последние 3 события в дневнике.",
     "expected": {
       "source_ids": [
+        "0b88e445-0545-8ab0-44cc-249cf10a25b3",
         "3087adc7-80fa-4bfb-bc2d-28a69e91f501",
-        "5b7d26d2-a0d1-41bf-b7ed-97df2affbc77",
         "cdca5a5f-7294-4755-97fd-f34630845dae"
       ]
     },
     "checks": {
       "numbers": [],
       "sources": [
+        "0b88e445-0545-8ab0-44cc-249cf10a25b3",
         "3087adc7-80fa-4bfb-bc2d-28a69e91f501",
-        "5b7d26d2-a0d1-41bf-b7ed-97df2affbc77",
         "cdca5a5f-7294-4755-97fd-f34630845dae"
       ],
       "answer_contains": [],
@@ -401,7 +363,9 @@
       "minutes": 380,
       "source_ids": [
         "e52e1647-1285-42a4-baad-29833d681539",
+        "ce83e5d1-ed39-41b7-1efe-a539887300c9",
         "4a678143-be91-4bfe-add6-9ee2c313894d",
+        "6b7712d7-684b-afcc-c417-7ecf80d07f32",
         "ce7726e9-f84c-4b71-af04-1d60debe6cd3",
         "22e9959c-0cef-4f54-8664-5950ad1e36a2",
         "273bc7fa-4698-42f3-bbdb-9d1be925f8f8",
@@ -414,7 +378,9 @@
       ],
       "sources": [
         "e52e1647-1285-42a4-baad-29833d681539",
+        "ce83e5d1-ed39-41b7-1efe-a539887300c9",
         "4a678143-be91-4bfe-add6-9ee2c313894d",
+        "6b7712d7-684b-afcc-c417-7ecf80d07f32",
         "ce7726e9-f84c-4b71-af04-1d60debe6cd3",
         "22e9959c-0cef-4f54-8664-5950ad1e36a2",
         "273bc7fa-4698-42f3-bbdb-9d1be925f8f8",
@@ -431,8 +397,8 @@
         "+03"
       ],
       "query_contains_all": [
-        "sleep_interval",
-        "started_at",
+        "sleep_start",
+        "sleep_end",
         "wake_event_id"
       ]
     }
@@ -458,8 +424,8 @@
       "max_iterations": 5,
       "requires_sql": true,
       "query_contains_any": [
-        "sleep_interval",
-        "sleep_start"
+        "sleep_start",
+        "sleep_end"
       ],
       "query_contains_all": []
     }

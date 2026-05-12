@@ -23,3 +23,4 @@ disable=
     import-outside-toplevel,
     too-few-public-methods,
     duplicate-code,
+    cyclic-import,

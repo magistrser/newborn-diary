@@ -176,7 +176,7 @@ async def test_from_text_returns_existing_message_events_without_parsing() -> No
     ))
 
     assert result == [existing]
-    assert parser.calls == []
+    assert not parser.calls
     assert tx.commits == 0
 
 
@@ -213,5 +213,5 @@ async def test_patch_rejects_invalid_payload_for_new_type_before_update() -> Non
             event_type=EventType.feed_breast,
         ))
 
-    assert repo.update_calls == []
+    assert not repo.update_calls
     assert tx.commits == 0
