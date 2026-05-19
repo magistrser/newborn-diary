@@ -53,8 +53,8 @@ The same compose file includes a `git-puller` sidecar that runs `git pull --ff-o
 `GIT_PULL_INTERVAL_SEC` seconds, defaulting to 300. It mounts the server user's home directory
 read-only as Git credential context and relies on FastAPI hot reload for picked-up source changes.
 Dependency changes still require rebuilding the image.
-The `/version` endpoint reports `COMMIT_SHA`/`GIT_COMMIT`/similar deployment env vars first and
-falls back to `git rev-parse HEAD` when the deployed checkout includes `.git`.
+The `/version` endpoint reports `COMMIT_SHA`/`GIT_COMMIT`/similar deployment env vars first,
+then falls back to mounted `.git` metadata or `git rev-parse HEAD`.
 
 ---
 

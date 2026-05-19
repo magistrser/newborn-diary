@@ -17,7 +17,59 @@ def _commit_from_env() -> tuple[str, str] | None:
     return None
 
 
-def _commit_from_git() -> str | None:
+def _read_text(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding='utf-8').strip()
+    except OSError:
+        return None
+
+
+def _git_metadata_dir() -> Path | None:
+    git_path = PROJECT_ROOT / '.git'
+    if git_path.is_dir():
+        return git_path
+
+    git_file = _read_text(git_path)
+    if git_file is None or not git_file.startswith('gitdir:'):
+        return None
+
+    git_dir = Path(git_file.removeprefix('gitdir:').strip())
+    if not git_dir.is_absolute():
+        git_dir = PROJECT_ROOT / git_dir
+    return git_dir
+
+
+def _commit_from_packed_refs(git_dir: Path, ref: str) -> str | None:
+    packed_refs = _read_text(git_dir / 'packed-refs')
+    if packed_refs is None:
+        return None
+
+    for line in packed_refs.splitlines():
+        if not line or line.startswith(('#', '^')):
+            continue
+        parts = line.split()
+        if len(parts) == 2 and parts[1] == ref:
+            return parts[0]
+    return None
+
+
+def _commit_from_git_metadata() -> str | None:
+    git_dir = _git_metadata_dir()
+    if git_dir is None:
+        return None
+
+    head = _read_text(git_dir / 'HEAD')
+    if head is None:
+        return None
+
+    if not head.startswith('ref:'):
+        return head
+
+    ref = head.removeprefix('ref:').strip()
+    return _read_text(git_dir / ref) or _commit_from_packed_refs(git_dir, ref)
+
+
+def _commit_from_git_command() -> str | None:
     try:
         result = subprocess.run(
             ['git', 'rev-parse', 'HEAD'],
@@ -37,9 +89,13 @@ def get_deployed_commit_hash() -> tuple[str, str]:
     if env_commit is not None:
         return env_commit
 
-    git_commit = _commit_from_git()
+    git_metadata_commit = _commit_from_git_metadata()
+    if git_metadata_commit is not None:
+        return git_metadata_commit, 'git_metadata'
+
+    git_commit = _commit_from_git_command()
     if git_commit is not None:
-        return git_commit, 'git'
+        return git_commit, 'git_command'
 
     return 'unknown', 'unknown'
 
