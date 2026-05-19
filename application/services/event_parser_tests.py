@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
+from zoneinfo import ZoneInfo
 
 from application.services.event_parser import EventParser
 from domain.event import EventType
@@ -62,6 +63,30 @@ async def test_parse_sleep_range_links_start_and_end(
     assert events[1].payload['sleep_start_id'] == str(events[0].id)
     assert events[1].payload['duration_min'] == 90
     assert [event.source_event_index for event in events] == [0, 1]
+
+
+async def test_parse_sleep_hhmm_duration_ends_at_message_date(
+    event_parser: EventParser,
+    mock_llm_fixture: AsyncMock,
+) -> None:
+    mock_llm_fixture.chat_json = AsyncMock(return_value={
+        'events': [
+            {'type': 'sleep_start', 'occurred_at': '2026-05-09T15:20:00+03:00', 'payload': {}},
+            {'type': 'sleep_end', 'occurred_at': '2026-05-09T16:40:00+03:00', 'payload': {}},
+        ]
+    })
+
+    events = await event_parser.parse_message(
+        'сон 1:20',
+        datetime(2026, 5, 9, 12, 20, tzinfo=timezone.utc),
+        [],
+    )
+
+    local_tz = ZoneInfo('Europe/Moscow')
+    assert [event.type for event in events] == [EventType.sleep_start, EventType.sleep_end]
+    assert events[0].occurred_at.astimezone(local_tz).strftime('%H:%M') == '14:00'
+    assert events[1].occurred_at.astimezone(local_tz).strftime('%H:%M') == '15:20'
+    assert events[1].payload == {'sleep_start_id': str(events[0].id), 'duration_min': 80}
 
 
 async def test_legacy_sleep_interval_output_is_split(

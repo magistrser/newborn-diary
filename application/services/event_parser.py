@@ -5,9 +5,10 @@ Explicit times found in the message body take precedence over the message send t
 """
 import json
 import logging
+import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ValidationError
@@ -90,6 +91,9 @@ _SYSTEM_PROMPT = """\
    `sleep_start` в начале сна и `sleep_end` в конце сна.
    Если написано «полтора часа» (1.5 ч) и нет явного начала, вычисли начало как \
 message_date - 90 минут, а конец как message_date.
+   Если сон записан коротко как «сон 1:20», «спал 1:20», «поспал 01:20» — это длительность \
+сна 1 час 20 минут, а НЕ время на часах. Конец сна = message_date, начало = message_date минус \
+указанная длительность.
 4. Все datetime в формате ISO 8601 со смещением +03:00.
 
 ## Правила разбора
@@ -178,6 +182,14 @@ text: "Пипи\\nЛевой 15 минут"
   {"type": "diaper", "occurred_at": "2026-05-09T08:45:00+03:00", "payload": {"kind": "pee"}},
   {"type": "feed_breast", "occurred_at": "2026-05-09T08:45:00+03:00", "payload": {"side": "left", "duration_min": 15}}
 ]}
+
+### Пример 9 — длительность сна в формате H:MM
+message_date: "2026-05-09T15:20:00+03:00"
+text: "сон 1:20"
+→ {"events": [
+  {"type": "sleep_start", "occurred_at": "2026-05-09T14:00:00+03:00", "payload": {}},
+  {"type": "sleep_end", "occurred_at": "2026-05-09T15:20:00+03:00", "payload": {"duration_min": 80}}
+]}
 """
 
 
@@ -189,6 +201,12 @@ _VALID_TEMP_METHODS = {e.value for e in TemperatureMethod}
 _VALID_SPIT_UP_VOLUMES = {e.value for e in SpitUpVolume}
 _VALID_CRYING_REASONS = {e.value for e in CryingReason}
 _VALID_DOCTOR_TYPES = {e.value for e in DoctorVisitType}
+_SLEEP_DURATION_WORD_RE = re.compile(
+    r'\b(?:сон|спал[аи]?|поспал[аи]?|проспал[аи]?|дремал[аи]?)\b',
+    re.IGNORECASE,
+)
+_CLOCK_LIKE_RE = re.compile(r'(?<!\d)(\d{1,2}):([0-5]\d)(?!\d)')
+_CLOCK_PREPOSITION_RE = re.compile(r'(?:^|\s)(?:в|во|с|со|до|к|ко|около|примерно)\s*$', re.IGNORECASE)
 
 
 def _normalise_payload(etype: EventType, payload: dict) -> dict:
@@ -289,6 +307,62 @@ def _parse_payload_datetime(value: object) -> datetime | None:
 def _sleep_duration_min(started_at: datetime, ended_at: datetime) -> int | None:
     duration = round((ended_at - started_at).total_seconds() / 60)
     return duration if duration >= 0 else None
+
+
+def _sleep_hhmm_duration_from_text(text: str) -> int | None:
+    if not _SLEEP_DURATION_WORD_RE.search(text):
+        return None
+
+    matches = list(_CLOCK_LIKE_RE.finditer(text))
+    if len(matches) != 1:
+        return None
+
+    match = matches[0]
+    if _CLOCK_PREPOSITION_RE.search(text[:match.start()]):
+        return None
+
+    hours = int(match.group(1))
+    minutes = int(match.group(2))
+    if hours > 12:
+        return None
+
+    duration = hours * 60 + minutes
+    return duration if duration > 0 else None
+
+
+def _apply_sleep_duration_from_text(
+    events: list[Event],
+    text: str,
+    message_date: datetime,
+    timezone_name: ZoneInfo,
+) -> None:
+    duration_min = _sleep_hhmm_duration_from_text(text)
+    if duration_min is None:
+        return
+
+    start_events = [event for event in events if event.type == EventType.sleep_start]
+    end_events = [event for event in events if event.type == EventType.sleep_end]
+    if len(start_events) != 1 or len(end_events) != 1:
+        return
+
+    start_event = start_events[0]
+    end_event = end_events[0]
+    ended_at = message_date.astimezone(timezone_name)
+    started_at = ended_at - timedelta(minutes=duration_min)
+
+    start_event.occurred_at = started_at
+    end_event.occurred_at = ended_at
+    end_event.payload = dict(end_event.payload) | {
+        'duration_min': duration_min,
+        'sleep_start_id': str(start_event.id),
+    }
+
+    start_index = events.index(start_event)
+    end_index = events.index(end_event)
+    if start_index > end_index:
+        events[start_index], events[end_index] = events[end_index], events[start_index]
+        for index, event in enumerate(events):
+            event.source_event_index = index
 
 
 def _link_sleep_boundaries(events: list[Event]) -> None:
@@ -454,5 +528,6 @@ class EventParser:
                 source_chat_id,
             ))
 
+        _apply_sleep_duration_from_text(events, text, message_date, self._tz)
         _link_sleep_boundaries(events)
         return events

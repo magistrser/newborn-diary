@@ -287,6 +287,8 @@ explicitly documented in the system prompt and is the most important parsing rul
 For known sleep ranges such as `19:30-20:20 сон` or `спал полтора часа`, the parser creates two
 events: `sleep_start` at the start and `sleep_end` at the end. The `sleep_end` payload links back
 to the generated start via `sleep_start_id` and includes `duration_min` when the duration is valid.
+Short sleep entries like `сон 1:20` are treated as durations, not future clock times: the sleep
+ends at `message_date` and starts 80 minutes earlier.
 
 **Context window:** The parser receives `recent_events` — up to 30 events from the preceding
 `context_window_hours` (default 12h). These appear in the prompt as a compact `HH:MM type payload`
@@ -418,6 +420,9 @@ uv run pytest -s --ignore=tests/
 
 # Integration tests (require running Postgres in docker-compose.dev.yml)
 uv run pytest -s tests/
+
+# Parser benchmark (requires configured parser LLM in settings.benchmark.yml)
+uv run python -m benchmarks.event_parser run
 ```
 
 Integration tests use `settings.test.yml` (set `ENVIRONMENT=TEST` automatically via `pytest.ini`).
