@@ -146,7 +146,7 @@ def test_generate_cases_counts_feeding_questions_as_sessions() -> None:
     assert by_id['count-type-feed_breast']['checks']['numbers'] == [2]
 
 
-def test_generate_cases_infers_sleep_from_start_to_next_non_start_event() -> None:
+def test_generate_cases_dedupes_consecutive_sleep_starts_for_interval_duration() -> None:
     events = [
         _event('00000000-0000-0000-0000-000000000001', '2026-05-10T06:00:00Z', 'sleep_start', {}),
         _event(
@@ -167,16 +167,25 @@ def test_generate_cases_infers_sleep_from_start_to_next_non_start_event() -> Non
     sleep_case = next(case for case in cases if case['id'] == 'inferred-sleep-duration-summary')
 
     assert sleep_case['expected'] == {
-        'rule': 'prompt_inferred_sleep',
-        'intervals': 2,
-        'minutes': 75,
+        'rule': 'ordered_event_sleep_interval_bounds',
+        'intervals': 1,
+        'minutes': 45,
+        'human_duration': '0 ч 45 мин',
     }
-    assert sleep_case['checks']['numbers'] == [2, 75]
+    assert sleep_case['checks']['numbers'] == [1, 45]
 
     average_day_case = next(case for case in cases if case['id'] == 'average-sleep-minutes-per-day')
     average_month_case = next(case for case in cases if case['id'] == 'average-sleep-minutes-per-month')
-    assert average_day_case['expected'] == {'average_minutes': 75, 'days_with_sleep_data': 1}
-    assert average_month_case['expected'] == {'average_minutes': 75, 'months_with_sleep_data': 1}
+    assert average_day_case['expected'] == {
+        'average_minutes': 45,
+        'days_with_sleep_data': 1,
+        'rule': 'ordered_event_sleep_interval_bounds',
+    }
+    assert average_month_case['expected'] == {
+        'average_minutes': 45,
+        'months_with_sleep_data': 1,
+        'rule': 'ordered_event_sleep_interval_bounds',
+    }
 
 
 def test_generate_cases_adds_sleep_end_without_start_intervals() -> None:
@@ -194,9 +203,10 @@ def test_generate_cases_adds_sleep_end_without_start_intervals() -> None:
     sleep_case = next(case for case in cases if case['id'] == 'inferred-sleep-duration-summary')
 
     assert sleep_case['expected'] == {
-        'rule': 'prompt_inferred_sleep',
+        'rule': 'ordered_event_sleep_interval_bounds',
         'intervals': 1,
         'minutes': 30,
+        'human_duration': '0 ч 30 мин',
     }
 
 
@@ -241,8 +251,8 @@ def test_generate_cases_adds_latest_day_night_sleep_with_explicit_boundaries() -
         'local_day': '2026-05-12',
         'calculation_interval': ['2026-05-12T00:00:00+03:00', '2026-05-13T00:00:00+03:00'],
         'minutes': 350,
+        'human_duration': '5 ч 50 мин',
         'source_ids': [
-            '00000000-0000-0000-0000-000000000001',
             '00000000-0000-0000-0000-000000000002',
             '00000000-0000-0000-0000-000000000003',
             '00000000-0000-0000-0000-000000000004',
@@ -253,7 +263,7 @@ def test_generate_cases_adds_latest_day_night_sleep_with_explicit_boundaries() -
             '00000000-0000-0000-0000-000000000009',
             '00000000-0000-0000-0000-000000000010',
         ],
-        'rule': 'sleep_minutes_overlapping_local_day_clipped_to_day_bounds',
+        'rule': 'ordered_event_sleep_interval_bounds',
     }
     assert today_case['checks']['numbers'] == [350]
     assert today_case['checks']['number_tolerance'] == 1
@@ -266,15 +276,16 @@ def test_generate_cases_adds_latest_day_night_sleep_with_explicit_boundaries() -
     assert today_case['checks']['query_contains_all'] == [
         'sleep_start',
         'sleep_end',
-        'wake_event_id',
-        'GREATEST',
-        'LEAST',
+        'boundary_event_id',
+        'LAG',
+        'LEAD',
     ]
 
     assert night_case['expected'] == {
         'local_day': '2026-05-12',
         'night_window': ['2026-05-11T20:00:00+03:00', '2026-05-12T06:00:00+03:00'],
         'minutes': 380,
+        'human_duration': '6 ч 20 мин',
         'source_ids': [
             '00000000-0000-0000-0000-000000000001',
             '00000000-0000-0000-0000-000000000002',
@@ -289,11 +300,22 @@ def test_generate_cases_adds_latest_day_night_sleep_with_explicit_boundaries() -
     assert night_case['checks']['numbers'] == [380]
     assert night_case['checks']['number_tolerance'] == 1
     assert night_case['checks']['sources'] == night_case['expected']['source_ids']
-    assert night_case['checks']['query_contains_all'] == ['sleep_start', 'sleep_end', 'wake_event_id']
-    assert summary_case['expected'] == {'rule': 'prompt_inferred_sleep', 'intervals': 5, 'minutes': 450}
+    assert night_case['checks']['query_contains_all'] == [
+        'sleep_start',
+        'sleep_end',
+        'boundary_event_id',
+        'LAG',
+        'LEAD',
+    ]
+    assert summary_case['expected'] == {
+        'rule': 'ordered_event_sleep_interval_bounds',
+        'intervals': 5,
+        'minutes': 450,
+        'human_duration': '7 ч 30 мин',
+    }
 
 
-def test_generate_cases_does_not_double_count_inferred_sleep_overlapping_explicit_boundary() -> None:
+def test_generate_cases_dedupes_consecutive_sleep_starts_in_night_window() -> None:
     events = [
         _event('00000000-0000-0000-0000-000000000001', '2026-05-11T18:57:10Z', 'sleep_start', {}),
         *_sleep_pair(
@@ -308,27 +330,61 @@ def test_generate_cases_does_not_double_count_inferred_sleep_overlapping_explici
     night_case = next(case for case in cases if case['id'] == 'latest-day-night-sleep-with-events')
     summary_case = next(case for case in cases if case['id'] == 'inferred-sleep-duration-summary')
 
-    assert night_case['expected']['minutes'] == 130
+    assert night_case['expected']['minutes'] == 153
     assert night_case['expected']['source_ids'] == [
-        '00000000-0000-0000-0000-000000000002',
+        '00000000-0000-0000-0000-000000000001',
         '00000000-0000-0000-0000-000000000003',
     ]
-    assert summary_case['expected'] == {'rule': 'prompt_inferred_sleep', 'intervals': 1, 'minutes': 130}
+    assert summary_case['expected'] == {
+        'rule': 'ordered_event_sleep_interval_bounds',
+        'intervals': 1,
+        'minutes': 153,
+        'human_duration': '2 ч 33 мин',
+    }
 
 
-def test_sleep_duration_ignores_invalid_explicit_boundary_without_fallback_reuse() -> None:
+def test_interval_sleep_duration_uses_left_border_for_first_sleep_end() -> None:
     events = [
-        _event('00000000-0000-0000-0000-000000000001', '2026-05-10T10:00:00Z', 'feed_breast', {'side': 'left'}),
-        *_sleep_pair(
-            '00000000-0000-0000-0000-000000000002',
-            '00000000-0000-0000-0000-000000000003',
-            '2026-05-10T12:00:00Z',
-            '2026-05-10T11:00:00Z',
-        ),
-        _event('00000000-0000-0000-0000-000000000004', '2026-05-10T13:00:00Z', 'diaper', {'kind': 'pee'}),
+        _event('00000000-0000-0000-0000-000000000001', '2026-05-10T00:30:00Z', 'sleep_end', {}),
     ]
 
-    assert ask._sleep_duration_intervals(events) == []  # pylint: disable=protected-access
+    intervals = ask._interval_sleep_duration_intervals(  # pylint: disable=protected-access
+        events,
+        datetime(2026, 5, 10, 0, 0, tzinfo=UTC),
+        datetime(2026, 5, 11, 0, 0, tzinfo=UTC),
+    )
+
+    assert intervals == [
+        {
+            'interval_type': 'inferential_sleep_end',
+            'id': '00000000-0000-0000-0000-000000000001',
+            'source_ids': ['00000000-0000-0000-0000-000000000001'],
+            'started_at': '2026-05-10T00:00:00Z',
+            'boundary_event_id': None,
+            'woke_at': '2026-05-10T00:30:00Z',
+            'duration_min': 30,
+        }
+    ]
+
+
+def test_generate_cases_adds_fixed_sleep_duration_case_for_2026_05_11() -> None:
+    events = [
+        _event('00000000-0000-0000-0000-000000000001', '2026-05-10T21:00:00Z', 'sleep_start', {}),
+        _event('00000000-0000-0000-0000-000000000002', '2026-05-11T09:57:00Z', 'diaper', {'kind': 'pee'}),
+    ]
+
+    cases = ask.generate_cases(events)
+    sleep_case = next(case for case in cases if case['id'] == 'sleep-duration-2026-05-11')
+
+    assert sleep_case['expected'] == {
+        'local_day': '2026-05-11',
+        'calculation_interval': ['2026-05-11T00:00:00+03:00', '2026-05-12T00:00:00+03:00'],
+        'minutes': 777,
+        'human_duration': '12 ч 57 мин',
+        'rule': 'ordered_event_sleep_interval_bounds',
+    }
+    assert sleep_case['checks']['numbers'] == [777]
+    assert sleep_case['checks']['answer_contains_any'] == ['12 ч 57 мин', '12 часов 57 минут']
 
 
 def test_generate_cases_adds_today_case_after_pinned_snapshot() -> None:

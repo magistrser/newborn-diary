@@ -539,6 +539,166 @@ def _sleep_duration_intervals(events: list[dict[str, Any]]) -> list[dict[str, An
     )
 
 
+def _sleep_event_sort_key(event: dict[str, Any]) -> tuple[datetime, int, str]:
+    return (
+        _parse_datetime(event['occurred_at']),
+        event.get('source_event_index') or 0,
+        event['id'],
+    )
+
+
+def _interval_sleep_duration_intervals(
+    events: list[dict[str, Any]],
+    start: datetime,
+    end: datetime,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    effective_end = min(now or end, end)
+    interval_events = sorted(
+        (
+            event
+            for event in events
+            if start <= _parse_datetime(event['occurred_at']) < end
+        ),
+        key=_sleep_event_sort_key,
+    )
+
+    prepared_events = []
+    for index, event in enumerate(interval_events):
+        previous_event = interval_events[index - 1] if index > 0 else None
+        next_event = interval_events[index + 1] if index + 1 < len(interval_events) else None
+        prepared_events.append(
+            event | {
+                '_prev_event_type': previous_event['type'] if previous_event else None,
+                '_next_event_type': next_event['type'] if next_event else None,
+            }
+        )
+
+    unique_events = [
+        event
+        for event in prepared_events
+        if not (event['type'] == 'sleep_end' and event['_next_event_type'] == 'sleep_end')
+        and not (event['type'] == 'sleep_start' and event['_prev_event_type'] == 'sleep_start')
+    ]
+
+    intervals = []
+    for index, event in enumerate(unique_events):
+        previous_event = unique_events[index - 1] if index > 0 else None
+        next_event = unique_events[index + 1] if index + 1 < len(unique_events) else None
+        occurred_at = _parse_datetime(event['occurred_at'])
+
+        if event['type'] == 'sleep_start':
+            woke_at = _parse_datetime(next_event['occurred_at']) if next_event else effective_end
+            duration_min = (woke_at - occurred_at).total_seconds() / 60.0
+            source_ids = [event['id']]
+            if next_event is not None:
+                source_ids.append(next_event['id'])
+            intervals.append({
+                'interval_type': 'completed',
+                'id': event['id'],
+                'source_ids': source_ids,
+                'started_at': _format_datetime(occurred_at),
+                'boundary_event_id': next_event['id'] if next_event else None,
+                'woke_at': _format_datetime(woke_at),
+                'duration_min': duration_min,
+            })
+            continue
+
+        if event['type'] == 'sleep_end' and (previous_event is None or previous_event['type'] != 'sleep_start'):
+            started_at = _parse_datetime(previous_event['occurred_at']) if previous_event else start
+            duration_min = (occurred_at - started_at).total_seconds() / 60.0
+            source_ids = []
+            if previous_event is not None:
+                source_ids.append(previous_event['id'])
+            source_ids.append(event['id'])
+            intervals.append({
+                'interval_type': 'inferential_sleep_end',
+                'id': event['id'],
+                'source_ids': source_ids,
+                'started_at': _format_datetime(started_at),
+                'boundary_event_id': previous_event['id'] if previous_event else None,
+                'woke_at': _format_datetime(occurred_at),
+                'duration_min': duration_min,
+            })
+
+    return intervals
+
+
+def _sleep_snapshot_window(events: Iterable[dict[str, Any]], timezone: ZoneInfo) -> tuple[datetime, datetime]:
+    local_days = [
+        _parse_datetime(event['occurred_at']).astimezone(timezone).date()
+        for event in events
+    ]
+    first_day = min(local_days)
+    latest_day = max(local_days)
+    return _day_window_for_day(first_day, timezone)[0], _day_window_for_day(latest_day, timezone)[1]
+
+
+def _interval_sleep_summary(
+    events: list[dict[str, Any]],
+    timezone: ZoneInfo,
+) -> tuple[list[dict[str, Any]], int, int]:
+    start, end = _sleep_snapshot_window(events, timezone)
+    intervals = _interval_sleep_duration_intervals(events, start, end)
+    return intervals, len(intervals), round(sum(interval['duration_min'] for interval in intervals))
+
+
+def _month_window_for_day(local_day: date, timezone: ZoneInfo) -> tuple[datetime, datetime]:
+    start = datetime(local_day.year, local_day.month, 1, tzinfo=timezone)
+    if local_day.month == 12:
+        end = datetime(local_day.year + 1, 1, 1, tzinfo=timezone)
+    else:
+        end = datetime(local_day.year, local_day.month + 1, 1, tzinfo=timezone)
+    return start, end
+
+
+def _interval_sleep_duration_totals(
+    events: list[dict[str, Any]],
+    timezone: ZoneInfo,
+    period: str,
+) -> dict[str, float]:
+    first_window_start, last_window_end = _sleep_snapshot_window(events, timezone)
+    first_day = first_window_start.astimezone(timezone).date()
+    latest_day = (last_window_end - timedelta(microseconds=1)).astimezone(timezone).date()
+    totals: dict[str, float] = {}
+
+    if period == 'day':
+        current_day = first_day
+        while current_day <= latest_day:
+            start, end = _day_window_for_day(current_day, timezone)
+            minutes = sum(
+                interval['duration_min']
+                for interval in _interval_sleep_duration_intervals(events, start, end)
+            )
+            if minutes > 0:
+                totals[current_day.isoformat()] = minutes
+            current_day += timedelta(days=1)
+        return totals
+
+    if period == 'month':
+        current_month = date(first_day.year, first_day.month, 1)
+        latest_month = date(latest_day.year, latest_day.month, 1)
+        while current_month <= latest_month:
+            start, end = _month_window_for_day(current_month, timezone)
+            minutes = sum(
+                interval['duration_min']
+                for interval in _interval_sleep_duration_intervals(events, start, end)
+            )
+            if minutes > 0:
+                totals[current_month.strftime('%Y-%m')] = minutes
+            if current_month.month == 12:
+                current_month = date(current_month.year + 1, 1, 1)
+            else:
+                current_month = date(current_month.year, current_month.month + 1, 1)
+        return totals
+
+    raise ValueError(f'Unsupported sleep average period: {period}')
+
+
+def _human_duration(minutes: int) -> str:
+    return f'{minutes // 60} ч {minutes % 60} мин'
+
+
 def _inferred_sleep_summary(events: list[dict[str, Any]]) -> tuple[int, int]:
     intervals = _sleep_duration_intervals(events)
     return len(intervals), round(sum(interval['duration_min'] for interval in intervals))
@@ -913,24 +1073,23 @@ def generate_cases(
         expected={'source_ids': [event['id'] for event in latest_events]},
     ))
 
-    inferred_sleep_intervals = _sleep_duration_intervals(events)
-    inferred_sleep_count, inferred_sleep_minutes = _inferred_sleep_summary(events)
-    if inferred_sleep_count:
+    interval_sleep_intervals, interval_sleep_count, interval_sleep_minutes = _interval_sleep_summary(events, timezone)
+    if interval_sleep_count:
         day_start, day_end = _day_window_for_day(latest_day, timezone)
-        latest_day_sleep_intervals = _sleep_intervals_overlapping_window(
-            inferred_sleep_intervals,
-            day_start,
-            day_end,
-        )
+        latest_day_sleep_intervals = _interval_sleep_duration_intervals(events, day_start, day_end)
         latest_day_sleep_minutes = round(
-            sum(interval['overlap_duration_min'] for interval in latest_day_sleep_intervals)
+            sum(interval['duration_min'] for interval in latest_day_sleep_intervals)
         )
         latest_day_sleep_sources = _source_ids_for_intervals(latest_day_sleep_intervals)
         if latest_day_sleep_intervals:
             cases.append(_case(
                 'latest-day-sleep-with-events',
                 'sleep',
-                'Сколько ребёнок спал сегодня? Покажи события, с помощью которых считал.',
+                (
+                    f'Сколько ребёнок спал {_ru_date(latest_day.isoformat())}? '
+                    'Покажи события, с помощью которых считал: SQL должен вернуть по строке на интервал '
+                    'с колонками id и boundary_event_id, без агрегации интервалов.'
+                ),
                 numbers=[latest_day_sleep_minutes],
                 number_tolerance=1,
                 sources=latest_day_sleep_sources,
@@ -940,7 +1099,7 @@ def generate_cases(
                     day_end.date().isoformat(),
                 ],
                 query_contains_any=[latest_day.isoformat(), 'AT TIME ZONE', '+03'],
-                query_contains_all=['sleep_start', 'sleep_end', 'wake_event_id', 'GREATEST', 'LEAST'],
+                query_contains_all=['sleep_start', 'sleep_end', 'boundary_event_id', 'LAG', 'LEAD'],
                 expected={
                     'local_day': latest_day.isoformat(),
                     'calculation_interval': [
@@ -948,30 +1107,71 @@ def generate_cases(
                         day_end.isoformat(),
                     ],
                     'minutes': latest_day_sleep_minutes,
+                    'human_duration': _human_duration(latest_day_sleep_minutes),
                     'source_ids': latest_day_sleep_sources,
-                    'rule': 'sleep_minutes_overlapping_local_day_clipped_to_day_bounds',
+                    'rule': 'ordered_event_sleep_interval_bounds',
                 },
             ))
 
+        fixed_sleep_day = date(2026, 5, 11)
+        if min(_parse_datetime(event['occurred_at']).astimezone(timezone).date() for event in events) <= fixed_sleep_day <= latest_day:
+            fixed_day_start, fixed_day_end = _day_window_for_day(fixed_sleep_day, timezone)
+            fixed_day_sleep_intervals = _interval_sleep_duration_intervals(
+                events,
+                fixed_day_start,
+                fixed_day_end,
+            )
+            fixed_day_sleep_minutes = round(
+                sum(interval['duration_min'] for interval in fixed_day_sleep_intervals)
+            )
+            if fixed_day_sleep_intervals:
+                cases.append(_case(
+                    'sleep-duration-2026-05-11',
+                    'sleep',
+                    'Сколько ребёнок спал 11.05.2026? Ответь в формате "X ч Y мин" и укажи общее число минут.',
+                    numbers=[fixed_day_sleep_minutes],
+                    answer_contains=[
+                        'Интервал расчёта',
+                        fixed_sleep_day.isoformat(),
+                        fixed_day_end.date().isoformat(),
+                    ],
+                    answer_contains_any=[
+                        _human_duration(fixed_day_sleep_minutes),
+                        f'{fixed_day_sleep_minutes // 60} часов {fixed_day_sleep_minutes % 60} минут',
+                    ],
+                    query_contains_any=[fixed_sleep_day.isoformat(), 'AT TIME ZONE', '+03'],
+                    query_contains_all=['sleep_start', 'sleep_end', 'LAG', 'LEAD'],
+                    expected={
+                        'local_day': fixed_sleep_day.isoformat(),
+                        'calculation_interval': [
+                            fixed_day_start.isoformat(),
+                            fixed_day_end.isoformat(),
+                        ],
+                        'minutes': fixed_day_sleep_minutes,
+                        'human_duration': _human_duration(fixed_day_sleep_minutes),
+                        'rule': 'ordered_event_sleep_interval_bounds',
+                    },
+                ))
+
         night_start, night_end = _night_window_for_day(latest_day, timezone)
-        latest_night_intervals = _sleep_intervals_started_in_window(
-            inferred_sleep_intervals,
-            timezone,
-            night_start,
-            night_end,
-        )
+        latest_night_intervals = _interval_sleep_duration_intervals(events, night_start, night_end)
         latest_night_minutes = round(sum(interval['duration_min'] for interval in latest_night_intervals))
         latest_night_sources = _source_ids_for_intervals(latest_night_intervals)
         if latest_night_intervals:
             cases.append(_case(
                 'latest-day-night-sleep-with-events',
                 'sleep',
-                'Сколько ребёнок спал сегодня ночью? Покажи события, с помощью которых считал.',
+                (
+                    f'Сколько ребёнок спал ночью с 20:00 {_ru_date(night_start.date().isoformat())} '
+                    f'по 06:00 {_ru_date(night_end.date().isoformat())}? '
+                    'Покажи события, с помощью которых считал: SQL должен вернуть по строке на интервал '
+                    'с колонками id и boundary_event_id, без агрегации интервалов.'
+                ),
                 numbers=[latest_night_minutes],
                 number_tolerance=1,
                 sources=latest_night_sources,
                 query_contains_any=[latest_day.isoformat(), 'AT TIME ZONE', '+03'],
-                query_contains_all=['sleep_start', 'sleep_end', 'wake_event_id'],
+                query_contains_all=['sleep_start', 'sleep_end', 'boundary_event_id', 'LAG', 'LEAD'],
                 expected={
                     'local_day': latest_day.isoformat(),
                     'night_window': [
@@ -979,6 +1179,7 @@ def generate_cases(
                         night_end.isoformat(),
                     ],
                     'minutes': latest_night_minutes,
+                    'human_duration': _human_duration(latest_night_minutes),
                     'source_ids': latest_night_sources,
                 },
             ))
@@ -987,44 +1188,53 @@ def generate_cases(
             'inferred-sleep-duration-summary',
             'sleep',
             (
-                'Сколько всего снов получилось и сколько минут сна суммарно, '
-                'если учитывать записанные интервалы сна, сон от засыпания до следующей записи, '
-                'а пробуждения без записанного засыпания — от предыдущей не-заметки?'
+                'Сколько всего интервалов сна получилось и сколько минут сна суммарно за всё время, '
+                'если считать сон по последовательности событий внутри периода?'
             ),
-            numbers=[inferred_sleep_count, inferred_sleep_minutes],
+            numbers=[interval_sleep_count, interval_sleep_minutes],
             query_contains_any=['sleep_start', 'sleep_end'],
+            query_contains_all=['LAG', 'LEAD'],
             expected={
-                'rule': 'prompt_inferred_sleep',
-                'intervals': inferred_sleep_count,
-                'minutes': inferred_sleep_minutes,
+                'rule': 'ordered_event_sleep_interval_bounds',
+                'intervals': interval_sleep_count,
+                'minutes': interval_sleep_minutes,
+                'human_duration': _human_duration(interval_sleep_minutes),
             },
         ))
-        day_totals = _sleep_duration_totals(inferred_sleep_intervals, timezone, 'day')
+        day_totals = _interval_sleep_duration_totals(events, timezone, 'day')
         average_sleep_per_day = _rounded_average(day_totals.values())
         if average_sleep_per_day:
             cases.append(_case(
                 'average-sleep-minutes-per-day',
                 'sleep_stats',
-                'В среднем сколько минут сна в день получается по дням, где есть записи сна?',
+                (
+                    'В среднем сколько минут сна в день получается за всё время по дням, где есть записи сна? '
+                    'Не фильтруй события по типу перед LAG/LEAD: все события являются границами.'
+                ),
                 numbers=[average_sleep_per_day],
                 query_contains_any=['sleep_start', 'AVG'],
                 expected={
                     'average_minutes': average_sleep_per_day,
                     'days_with_sleep_data': len(day_totals),
+                    'rule': 'ordered_event_sleep_interval_bounds',
                 },
             ))
-        month_totals = _sleep_duration_totals(inferred_sleep_intervals, timezone, 'month')
+        month_totals = _interval_sleep_duration_totals(events, timezone, 'month')
         average_sleep_per_month = _rounded_average(month_totals.values())
         if average_sleep_per_month:
             cases.append(_case(
                 'average-sleep-minutes-per-month',
                 'sleep_stats',
-                'В среднем сколько минут сна в месяц получается по месяцам, где есть записи сна?',
+                (
+                    'В среднем сколько минут сна в месяц получается за всё время по месяцам, где есть записи сна? '
+                    'Не фильтруй события по типу перед LAG/LEAD: все события являются границами.'
+                ),
                 numbers=[average_sleep_per_month],
                 query_contains_any=['sleep_start', 'AVG'],
                 expected={
                     'average_minutes': average_sleep_per_month,
                     'months_with_sleep_data': len(month_totals),
+                    'rule': 'ordered_event_sleep_interval_bounds',
                 },
             ))
     return cases

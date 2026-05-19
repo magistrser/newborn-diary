@@ -209,6 +209,31 @@
     }
   },
   {
+    "id": "count-today-after-snapshot",
+    "category": "relative_dates",
+    "question": "Сколько записей сегодня?",
+    "expected": {
+      "local_day": "2026-05-13",
+      "count": 0
+    },
+    "checks": {
+      "numbers": [
+        0
+      ],
+      "sources": [],
+      "answer_contains": [],
+      "answer_contains_any": [],
+      "number_tolerance": 0,
+      "max_iterations": 5,
+      "requires_sql": true,
+      "query_contains_any": [
+        "AT TIME ZONE",
+        "+03"
+      ],
+      "query_contains_all": []
+    }
+  },
+  {
     "id": "count-poo-diapers",
     "category": "diapers",
     "question": "Сколько раз был стул за всё время?",
@@ -353,7 +378,7 @@
   {
     "id": "latest-day-sleep-with-events",
     "category": "sleep",
-    "question": "Сколько ребёнок спал сегодня? Покажи события, с помощью которых считал.",
+    "question": "Сколько ребёнок спал 12 мая 2026? Покажи события, с помощью которых считал: SQL должен вернуть по строке на интервал с колонками id и boundary_event_id, без агрегации интервалов.",
     "expected": {
       "local_day": "2026-05-12",
       "calculation_interval": [
@@ -361,8 +386,8 @@
         "2026-05-13T00:00:00+03:00"
       ],
       "minutes": 543,
+      "human_duration": "9 ч 3 мин",
       "source_ids": [
-        "e52e1647-1285-42a4-baad-29833d681539",
         "ce83e5d1-ed39-41b7-1efe-a539887300c9",
         "4a678143-be91-4bfe-add6-9ee2c313894d",
         "6b7712d7-684b-afcc-c417-7ecf80d07f32",
@@ -379,14 +404,13 @@
         "0ce40543-97a0-45ce-87c0-a6365424586e",
         "de7c2f67-94b1-0c2a-59e4-8adafed10249"
       ],
-      "rule": "sleep_minutes_overlapping_local_day_clipped_to_day_bounds"
+      "rule": "ordered_event_sleep_interval_bounds"
     },
     "checks": {
       "numbers": [
         543
       ],
       "sources": [
-        "e52e1647-1285-42a4-baad-29833d681539",
         "ce83e5d1-ed39-41b7-1efe-a539887300c9",
         "4a678143-be91-4bfe-add6-9ee2c313894d",
         "6b7712d7-684b-afcc-c417-7ecf80d07f32",
@@ -420,25 +444,71 @@
       "query_contains_all": [
         "sleep_start",
         "sleep_end",
-        "wake_event_id",
-        "GREATEST",
-        "LEAST"
+        "boundary_event_id",
+        "LAG",
+        "LEAD"
+      ]
+    }
+  },
+  {
+    "id": "sleep-duration-2026-05-11",
+    "category": "sleep",
+    "question": "Сколько ребёнок спал 11.05.2026? Ответь в формате \"X ч Y мин\" и укажи общее число минут.",
+    "expected": {
+      "local_day": "2026-05-11",
+      "calculation_interval": [
+        "2026-05-11T00:00:00+03:00",
+        "2026-05-12T00:00:00+03:00"
+      ],
+      "minutes": 777,
+      "human_duration": "12 ч 57 мин",
+      "rule": "ordered_event_sleep_interval_bounds"
+    },
+    "checks": {
+      "numbers": [
+        777
+      ],
+      "sources": [],
+      "answer_contains": [
+        "Интервал расчёта",
+        "2026-05-11",
+        "2026-05-12"
+      ],
+      "answer_contains_any": [
+        "12 ч 57 мин",
+        "12 часов 57 минут"
+      ],
+      "number_tolerance": 0,
+      "max_iterations": 5,
+      "requires_sql": true,
+      "query_contains_any": [
+        "2026-05-11",
+        "AT TIME ZONE",
+        "+03"
+      ],
+      "query_contains_all": [
+        "sleep_start",
+        "sleep_end",
+        "LAG",
+        "LEAD"
       ]
     }
   },
   {
     "id": "latest-day-night-sleep-with-events",
     "category": "sleep",
-    "question": "Сколько ребёнок спал сегодня ночью? Покажи события, с помощью которых считал.",
+    "question": "Сколько ребёнок спал ночью с 20:00 11 мая 2026 по 06:00 12 мая 2026? Покажи события, с помощью которых считал: SQL должен вернуть по строке на интервал с колонками id и boundary_event_id, без агрегации интервалов.",
     "expected": {
       "local_day": "2026-05-12",
       "night_window": [
         "2026-05-11T20:00:00+03:00",
         "2026-05-12T06:00:00+03:00"
       ],
-      "minutes": 380,
+      "minutes": 423,
+      "human_duration": "7 ч 3 мин",
       "source_ids": [
-        "e52e1647-1285-42a4-baad-29833d681539",
+        "7da40451-7766-48b6-ca8a-4c16b677a8c0",
+        "dbd22a90-f43e-41be-ad98-ac28b9049194",
         "ce83e5d1-ed39-41b7-1efe-a539887300c9",
         "4a678143-be91-4bfe-add6-9ee2c313894d",
         "6b7712d7-684b-afcc-c417-7ecf80d07f32",
@@ -450,10 +520,11 @@
     },
     "checks": {
       "numbers": [
-        380
+        423
       ],
       "sources": [
-        "e52e1647-1285-42a4-baad-29833d681539",
+        "7da40451-7766-48b6-ca8a-4c16b677a8c0",
+        "dbd22a90-f43e-41be-ad98-ac28b9049194",
         "ce83e5d1-ed39-41b7-1efe-a539887300c9",
         "4a678143-be91-4bfe-add6-9ee2c313894d",
         "6b7712d7-684b-afcc-c417-7ecf80d07f32",
@@ -475,23 +546,26 @@
       "query_contains_all": [
         "sleep_start",
         "sleep_end",
-        "wake_event_id"
+        "boundary_event_id",
+        "LAG",
+        "LEAD"
       ]
     }
   },
   {
     "id": "inferred-sleep-duration-summary",
     "category": "sleep",
-    "question": "Сколько всего снов получилось и сколько минут сна суммарно, если учитывать записанные интервалы сна, сон от засыпания до следующей записи, а пробуждения без записанного засыпания — от предыдущей не-заметки?",
+    "question": "Сколько всего интервалов сна получилось и сколько минут сна суммарно за всё время, если считать сон по последовательности событий внутри периода?",
     "expected": {
-      "rule": "prompt_inferred_sleep",
-      "intervals": 164,
-      "minutes": 12023
+      "rule": "ordered_event_sleep_interval_bounds",
+      "intervals": 146,
+      "minutes": 10867,
+      "human_duration": "181 ч 7 мин"
     },
     "checks": {
       "numbers": [
-        164,
-        12023
+        146,
+        10867
       ],
       "sources": [],
       "answer_contains": [],
@@ -503,20 +577,24 @@
         "sleep_start",
         "sleep_end"
       ],
-      "query_contains_all": []
+      "query_contains_all": [
+        "LAG",
+        "LEAD"
+      ]
     }
   },
   {
     "id": "average-sleep-minutes-per-day",
     "category": "sleep_stats",
-    "question": "В среднем сколько минут сна в день получается по дням, где есть записи сна?",
+    "question": "В среднем сколько минут сна в день получается за всё время по дням, где есть записи сна? Не фильтруй события по типу перед LAG/LEAD: все события являются границами.",
     "expected": {
-      "average_minutes": 802,
-      "days_with_sleep_data": 15
+      "average_minutes": 696,
+      "days_with_sleep_data": 15,
+      "rule": "ordered_event_sleep_interval_bounds"
     },
     "checks": {
       "numbers": [
-        802
+        696
       ],
       "sources": [],
       "answer_contains": [],
@@ -534,14 +612,15 @@
   {
     "id": "average-sleep-minutes-per-month",
     "category": "sleep_stats",
-    "question": "В среднем сколько минут сна в месяц получается по месяцам, где есть записи сна?",
+    "question": "В среднем сколько минут сна в месяц получается за всё время по месяцам, где есть записи сна? Не фильтруй события по типу перед LAG/LEAD: все события являются границами.",
     "expected": {
-      "average_minutes": 6011,
-      "months_with_sleep_data": 2
+      "average_minutes": 5421,
+      "months_with_sleep_data": 2,
+      "rule": "ordered_event_sleep_interval_bounds"
     },
     "checks": {
       "numbers": [
-        6011
+        5421
       ],
       "sources": [],
       "answer_contains": [],

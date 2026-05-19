@@ -24,6 +24,10 @@ def test_sql_prompt_uses_local_today_for_relative_dates() -> None:
         "BETWEEN '2026-05-11' AND '2026-05-17'"
     ) in prompt
     assert "AND occurred_at <  '2026-05-18 00:00:00+03'" in prompt
+    assert 'Для статистики количества обычных событий по дням с нулевыми днями' in prompt
+    assert "SELECT generate_series('2026-05-11'::date, '2026-05-17'::date, INTERVAL '1 day')" in prompt
+    assert "ON DATE(e.occurred_at AT TIME ZONE 'Europe/Moscow') = d.local_day" in prompt
+    assert 'COUNT(e.id) AS event_count' in prompt
     assert "Если используешь явные границы с `+03`, не добавляй к ним `AT TIME ZONE`" in prompt
     assert "WHERE occurred_at >= '2026-04-28 00:00:00+03' AT TIME ZONE 'Europe/Moscow'" in prompt
 
@@ -57,7 +61,7 @@ def test_sql_prompt_uses_occurred_at_as_event_time_not_raw_text() -> None:
     assert 'ORDER BY occurred_at DESC, source_event_index DESC, id DESC' in prompt
 
 
-def test_sql_prompt_describes_inferred_sleep_duration_rule() -> None:
+def test_sql_prompt_describes_interval_sleep_duration_rule() -> None:
     prompt = build_sql_system_prompt(
         now=datetime(2026, 5, 11, 12, 0, tzinfo=UTC),
         tz='Europe/Moscow',
@@ -65,51 +69,54 @@ def test_sql_prompt_describes_inferred_sleep_duration_rule() -> None:
         statement_timeout_ms=3000,
     )
 
-    assert 'считай сон от события `sleep_start` до следующего события после него' in prompt
-    assert 'сначала учитывай явные пары `sleep_start` + `sleep_end`' in prompt
-    assert "payload->>'sleep_start_id'" in prompt
-    assert "у которого `type NOT IN ('sleep_start', 'note')`" in prompt
-    assert 'если он пересекается по времени с любой явной парой' in prompt
-    assert 'Если явная пара имеет конец раньше начала' in prompt
-    assert "считай, что ребёнок спал от предыдущей записи с `type <> 'note'`" in prompt
-    assert 'События `note` — это заметки' in prompt
-    assert 'Не оставляй `...` в SQL' in prompt
-    assert '`explicit_sleep_boundaries`, `start_based_sleeps`, `sleep_end_without_start`' in prompt
-    assert 'Не добавляй `p.type <> \'sleep_start\'` внутрь поиска' in prompt
+    assert 'длительность сна за любой период' in prompt
+    assert '`border_left` и `border_right`' in prompt
+    assert '`2026-05-11 00:00:00+03` — `2026-05-12 00:00:00+03`' in prompt
+    assert 'occurred_at >= border_left AND occurred_at < border_right' in prompt
+    assert 'повторные `sleep_start` после `sleep_start`' in prompt
+    assert 'повторные `sleep_end` перед `sleep_end`' in prompt
+    assert 'до `LEAST(now(), border_right)`' in prompt
+    assert 'если предыдущего события нет — от `border_left`' in prompt
+    assert 'не фильтруй `prepared_data` до одних только `sleep_start`/`sleep_end`' in prompt
+    assert "запрещено добавлять `AND e.type IN ('sleep_start', 'sleep_end')`" in prompt
+    assert "не суммируй `payload->>'duration_min'`" in prompt
     assert 'source_event_index SMALLINT NOT NULL DEFAULT 0' in prompt
-    assert 'WITH explicit_sleep_boundaries_all AS' in prompt
-    assert 'explicit_sleep_boundary_events AS' in prompt
-    assert 'start_based_sleeps_raw AS' in prompt
-    assert 'sleep_end_without_start_raw AS' in prompt
-    assert 'woke_at >= started_at' in prompt
-    assert 'inferred.started_at < explicit.woke_at' in prompt
-    assert 'inferred.woke_at > explicit.started_at' in prompt
-    assert "wake.type = 'sleep_end'" in prompt
-    assert "s.type = 'sleep_start'" in prompt
-    assert "AND e.type NOT IN ('sleep_start', 'note')" in prompt
-    assert 'AND e.source_message_id IS NOT DISTINCT FROM s.source_message_id' in prompt
-    assert 'CASE WHEN e.occurred_at = s.occurred_at THEN e.source_event_index ELSE 0 END ASC' in prompt
-    assert "AND p.type <> 'note'" in prompt
-    assert 'boundary.event_id = p.id' in prompt
-    assert "WHERE e.type = 'sleep_end'" in prompt
-    assert 'previous_event.type <> \'sleep_start\'' in prompt
-    assert 'start_based_sleeps_raw counted WHERE counted.wake_event_id = e.id' in prompt
-    assert 'только про такие дополнительные `sleep_end` без записанного засыпания' in prompt
-    assert 'Если пользователь спрашивает "сегодня ночью" или "сегодняшней ночью"' in prompt
-    assert 'с 20:00 предыдущего календарного дня до 06:00 сегодняшнего дня' in prompt
-    assert 'Если пользователь спрашивает "сегодня" про длительность сна без слова "ночью"' in prompt
-    assert '`GREATEST(started_at, day_start)` и `LEAST(woke_at, day_end)`' in prompt
-    assert 'сон, пересекающий сегодня, может начаться вчера' in prompt
-    assert 'Не используй `ARRAY_AGG`, `JSON_AGG` или `ROW(...)`' in prompt
-    assert 'Верни одну строку на каждый интервал из `today_sleeps`' in prompt
-    assert 'Не агрегируй использованные события в JSON/array' in prompt
-    assert "WHERE started_at >= '2026-05-11 20:00:00+03'" in prompt
-    assert "AND started_at <  '2026-05-12 06:00:00+03'" in prompt
-    assert 'day_bounds AS' in prompt
-    assert "'2026-05-11 00:00:00+03'::timestamptz AS day_start" in prompt
-    assert "'2026-05-12 00:00:00+03'::timestamptz AS day_end" in prompt
-    assert 'GREATEST(i.started_at, b.day_start) AS started_at' in prompt
-    assert 'LEAST(i.woke_at, b.day_end) AS woke_at' in prompt
-    assert 'Интервал расчёта: 2026-05-11 00:00+03 — 2026-05-12 00:00+03' in prompt
-    assert 'Для среднего сна в день сначала получи `inferred_sleeps` через полный базовый CTE выше' in prompt
+    assert 'WITH interval_bounds AS' in prompt
+    assert "'<border_left>'::timestamptz AS border_left" in prompt
+    assert "'<border_right>'::timestamptz AS border_right" in prompt
+    assert 'prepared_data AS' in prompt
+    assert 'unique_sleep AS' in prompt
+    assert 'prepared_time AS' in prompt
+    assert 'completed_sleep_intervals AS' in prompt
+    assert 'inferential_sleep_end_intervals AS' in prompt
+    assert 'sleep_intervals AS' in prompt
+    assert 'LAG(e.type) OVER (ORDER BY e.occurred_at, e.source_event_index, e.id)' in prompt
+    assert 'LEAD(e.type) OVER (ORDER BY e.occurred_at, e.source_event_index, e.id)' in prompt
+    assert "(type = 'sleep_end' AND type = next_event_type) IS NOT TRUE" in prompt
+    assert "(type = 'sleep_start' AND type = prev_event_type) IS NOT TRUE" in prompt
+    assert 'LAG(occurred_at, 1, b.border_left)' in prompt
+    assert 'LEAD(occurred_at, 1, LEAST(now(), b.border_right))' in prompt
+    assert "prev_event_type IS DISTINCT FROM 'sleep_start'" in prompt
+    assert 'boundary_event_id' in prompt
+    assert 'Не используй `ARRAY_AGG`, `JSON_AGG`, `jsonb_build_object` или `ROW(...)`' in prompt
+    assert 'Не делай финальный SELECT только из `total`, если пользователь просит события' in prompt
+    assert 'Не выдумывай события и id' in prompt
+    assert 'CONCAT(total_minutes / 60, \' ч \', total_minutes % 60, \' мин\')' in prompt
+    assert 'Итого: 12 ч 57 мин (777 минут).' in prompt
+    assert 'period_bounds(period_label, border_left, border_right)' in prompt
+    assert 'PARTITION BY period_label' in prompt
+    assert 'Если пользователь спрашивает среднее "за всё время"' in prompt
+    assert 'не ограничивай расчёт текущей неделей, текущим месяцем или текущим годом' in prompt
+    assert '`prepared_data` должен выбирать `period_label`, `border_left` и `border_right`' in prompt
+    assert '`DATE(started_at)` или `DATE(occurred_at)`' in prompt
+    assert 'Никогда не отправляй SQL с литералами `\'<border_left>\'` или `\'<border_right>\'`' in prompt
+    assert 'Готовый шаблон для среднего сна по локальным дням за всё время' in prompt
+    assert 'MIN(DATE(occurred_at AT TIME ZONE \'Europe/Moscow\')) AS first_day' in prompt
+    assert 'CROSS JOIN LATERAL generate_series(first_day, last_day, INTERVAL \'1 day\')' in prompt
+    assert 'b.period_label' in prompt
+    assert 'PARTITION BY b.period_label' in prompt
+    assert 'LAG(occurred_at, 1, border_left)' in prompt
+    assert 'average_sleep_minutes_per_day' in prompt
+    assert 'Для среднего по месяцам используй тот же CTE' in prompt
+    assert 'CROSS JOIN LATERAL generate_series(first_month, last_month, INTERVAL \'1 month\')' in prompt
     assert 'average_sleep_minutes_per_month' in prompt

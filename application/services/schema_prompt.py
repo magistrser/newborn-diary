@@ -223,6 +223,21 @@ WHERE occurred_at >= '2026-05-11 00:00:00+03'
   AND occurred_at <  '2026-05-18 00:00:00+03'
 ```
 
+Для статистики количества обычных событий по дням с нулевыми днями используй локальные даты,
+а не `period_bounds` из раздела про сон:
+
+```sql
+WITH days AS (
+  SELECT generate_series('2026-05-11'::date, '2026-05-17'::date, INTERVAL '1 day')::date AS local_day
+)
+SELECT d.local_day, COUNT(e.id) AS event_count
+FROM days d
+LEFT JOIN events e
+  ON DATE(e.occurred_at AT TIME ZONE '{tz}') = d.local_day
+GROUP BY d.local_day
+ORDER BY d.local_day;
+```
+
 Если используешь явные границы с `+03`, не добавляй к ним `AT TIME ZONE`:
 литерал с `+03` уже является корректной границей для `TIMESTAMPTZ`.
 
@@ -267,247 +282,273 @@ SELECT COUNT(DISTINCT session_id) AS feeding_count FROM sessions;
 
 ## Подсчёт сна и длительности сна
 
-Пользователь не всегда явно записывает начало или окончание сна. Если нужно посчитать длительность сна:
-- сначала учитывай явные пары `sleep_start` + `sleep_end`, где у `sleep_end`
-  есть `payload->>'sleep_start_id'`: это уже готовые границы одного сна;
-- считай сон от события `sleep_start` до следующего события после него,
-  у которого `type NOT IN ('sleep_start', 'note')`;
-- если есть `sleep_end`, но он не является пробуждением для уже посчитанного `sleep_start`,
-  считай, что ребёнок спал от предыдущей записи с `type <> 'note'` до этого `sleep_end`.
-Явные пары `sleep_start` + `sleep_end` важнее выведенных интервалов: не добавляй выведенный интервал,
-если он пересекается по времени с любой явной парой, иначе сон будет посчитан дважды.
-Если явная пара имеет конец раньше начала, не считай её длительность и не используй её события
-как границы для выведения других снов.
-События `note` — это заметки, они не являются началом или окончанием сна и не должны участвовать
-в расчёте сна как границы интервала.
-Не суммируй `payload->>'duration_min'` из всех типов событий: поле `duration_min` есть не только у сна.
-Не оставляй `...` в SQL. Для любых вопросов о длительности сна копируй весь набор CTE ниже:
-`explicit_sleep_boundaries`, `start_based_sleeps`, `sleep_end_without_start`, затем `inferred_sleeps`.
-В `sleep_end_without_start` сначала найди предыдущую запись с `p.type <> 'note'`, а потом фильтруй
-`previous_event.type <> 'sleep_start'`. Не добавляй `p.type <> 'sleep_start'` внутрь поиска
-предыдущей записи. Чтобы не считать `sleep_end` дважды, используй именно условие
-`NOT EXISTS (SELECT 1 FROM start_based_sleeps_raw counted WHERE counted.wake_event_id = e.id)`.
-Даже если пользователь спрашивает только про такие дополнительные `sleep_end` без записанного засыпания,
-всё равно сначала построй `start_based_sleeps` и исключи уже использованные пробуждения через `NOT EXISTS`.
-Если пользователь спрашивает "сегодня ночью" или "сегодняшней ночью", считай ночной сон,
-относящийся к сегодняшней локальной дате: с 20:00 предыдущего календарного дня до 06:00 сегодняшнего дня
-в часовом поясе пользователя. Фильтруй уже построенные интервалы сна по `started_at`.
-Если пользователь спрашивает "сегодня" про длительность сна без слова "ночью", считай весь локальный
-календарный день: от 00:00 сегодняшней даты до 00:00 следующей даты в часовом поясе пользователя.
-Для таких вопросов считай только минуты пересечения сна с этим днём: обрезай каждый интервал через
-`GREATEST(started_at, day_start)` и `LEAST(woke_at, day_end)`, а затем оставляй только строки,
-где обрезанное начало меньше обрезанного конца.
-Если пользователь просит "покажи события" для сна за сегодня, не делай отдельный запрос к `events`
-по дате события после расчёта интервалов: сон, пересекающий сегодня, может начаться вчера, но его
-`id` всё равно должен попасть в источники. Не используй `ARRAY_AGG`, `JSON_AGG` или `ROW(...)`
-для списка интервалов. Верни одну строку на каждый интервал из `today_sleeps`, а итоговую сумму
-посчитай по этим строкам.
-Если пользователь просит показать события, включай id всех использованных событий:
-для сна от `sleep_start` до пробуждения — id начала и `wake_event_id`.
-Не агрегируй использованные события в JSON/array для таких вопросов: верни строки интервалов с колонками
-`id`, `wake_event_id`, `started_at`, `woke_at`, `duration_min`, чтобы источники попали в ответ.
+Если нужно посчитать длительность сна за любой период ("сегодня", "11.05", неделя, месяц,
+диапазон дат или явный интервал времени), сначала определи локальные границы периода в часовом
+поясе пользователя и подставь их как `border_left` и `border_right`.
+Для календарных периодов используй московские границы:
+- "сегодня": `{local_today.isoformat()} 00:00:00+03` — `{local_tomorrow.isoformat()} 00:00:00+03`;
+- "сегодня ночью": 20:00 предыдущего локального дня — 06:00 сегодняшнего локального дня;
+- "11.05.2026": `2026-05-11 00:00:00+03` — `2026-05-12 00:00:00+03`;
+- диапазон дат включительно заканчивается в 00:00 дня после последней даты.
 
-Базовый CTE для длительности сна:
+Правило расчёта сна внутри выбранных границ:
+- бери только события внутри интервала: `occurred_at >= border_left AND occurred_at < border_right`;
+- убирай подряд идущие дубликаты маркеров сна: повторные `sleep_start` после `sleep_start`
+  и повторные `sleep_end` перед `sleep_end`;
+- каждый оставшийся `sleep_start` даёт сон до следующего события внутри интервала,
+  а если следующего события нет — до `LEAST(now(), border_right)`;
+- каждый оставшийся `sleep_end`, перед которым нет `sleep_start`, даёт сон от предыдущего события
+  внутри интервала, а если предыдущего события нет — от `border_left`;
+- не фильтруй `prepared_data` до одних только `sleep_start`/`sleep_end`: любые типы событий внутри
+  интервала являются границами сна;
+- запрещено добавлять `AND e.type IN ('sleep_start', 'sleep_end')` в `prepared_data` — такой фильтр
+  ломает границы сна и даёт неверную длительность;
+- не суммируй `payload->>'duration_min'`: поле может быть устаревшим или относиться не к этому
+  интервалу. Источник истины — последовательность `occurred_at`;
+- сортируй события детерминированно: `ORDER BY occurred_at, source_event_index, id`.
+
+Для любых вопросов о длительности сна копируй этот CTE целиком и меняй только значения
+`border_left` и `border_right`:
 
 ```sql
-WITH explicit_sleep_boundaries_all AS (
+WITH interval_bounds AS (
   SELECT
-    s.id AS id,
-    s.occurred_at AS started_at,
-    wake.id AS wake_event_id,
-    wake.occurred_at AS woke_at,
-    EXTRACT(EPOCH FROM (wake.occurred_at - s.occurred_at)) / 60.0 AS duration_min
-  FROM events wake
-  JOIN events s ON s.id::TEXT = wake.payload->>'sleep_start_id'
-  WHERE wake.type = 'sleep_end'
-    AND s.type = 'sleep_start'
+    '<border_left>'::timestamptz AS border_left,
+    '<border_right>'::timestamptz AS border_right
 ),
-explicit_sleep_boundaries AS (
-  SELECT *
-  FROM explicit_sleep_boundaries_all
-  WHERE woke_at >= started_at
-),
-explicit_sleep_boundary_events AS (
-  SELECT id AS event_id FROM explicit_sleep_boundaries_all
-  UNION
-  SELECT wake_event_id AS event_id FROM explicit_sleep_boundaries_all
-),
-start_based_sleeps_raw AS (
-  SELECT
-    s.id AS id,
-    s.occurred_at AS started_at,
-    wake.id AS wake_event_id,
-    wake.occurred_at AS woke_at,
-    EXTRACT(EPOCH FROM (wake.occurred_at - s.occurred_at)) / 60.0 AS duration_min
-  FROM events s
-  CROSS JOIN LATERAL (
-    SELECT e.id, e.occurred_at, e.source_event_index
-    FROM events e
-    WHERE (
-        e.occurred_at > s.occurred_at
-        OR (
-          e.occurred_at = s.occurred_at
-          AND e.source_chat_id IS NOT DISTINCT FROM s.source_chat_id
-          AND e.source_message_id IS NOT DISTINCT FROM s.source_message_id
-          AND e.source_event_index > s.source_event_index
-        )
-      )
-      AND e.type NOT IN ('sleep_start', 'note')
-      AND NOT EXISTS (
-        SELECT 1 FROM explicit_sleep_boundary_events boundary WHERE boundary.event_id = e.id
-      )
-    ORDER BY
-      e.occurred_at ASC,
-      CASE WHEN e.occurred_at = s.occurred_at THEN e.source_event_index ELSE 0 END ASC,
-      e.id ASC
-    LIMIT 1
-  ) wake
-  WHERE s.type = 'sleep_start'
-    AND NOT EXISTS (
-      SELECT 1 FROM explicit_sleep_boundary_events boundary WHERE boundary.event_id = s.id
-    )
-),
-start_based_sleeps AS (
-  SELECT *
-  FROM start_based_sleeps_raw inferred
-  WHERE NOT EXISTS (
-    SELECT 1
-    FROM explicit_sleep_boundaries explicit
-    WHERE inferred.started_at < explicit.woke_at
-      AND inferred.woke_at > explicit.started_at
-  )
-),
-sleep_end_without_start_raw AS (
+prepared_data AS (
   SELECT
     e.id AS id,
-    previous_event.occurred_at AS started_at,
-    e.id AS wake_event_id,
-    e.occurred_at AS woke_at,
-    EXTRACT(EPOCH FROM (e.occurred_at - previous_event.occurred_at)) / 60.0 AS duration_min
+    e.occurred_at,
+    e.type,
+    e.source_event_index,
+    LAG(e.type) OVER (ORDER BY e.occurred_at, e.source_event_index, e.id) AS prev_event_type,
+    LEAD(e.type) OVER (ORDER BY e.occurred_at, e.source_event_index, e.id) AS next_event_type
   FROM events e
-  CROSS JOIN LATERAL (
-    SELECT p.id, p.occurred_at, p.type, p.source_event_index
-    FROM events p
-    WHERE (
-        (
-          p.occurred_at < e.occurred_at
-          OR (
-            p.occurred_at = e.occurred_at
-            AND p.source_chat_id IS NOT DISTINCT FROM e.source_chat_id
-            AND p.source_message_id IS NOT DISTINCT FROM e.source_message_id
-            AND p.source_event_index < e.source_event_index
-          )
-        )
-        AND p.type <> 'note'
-        AND NOT EXISTS (
-          SELECT 1 FROM explicit_sleep_boundary_events boundary WHERE boundary.event_id = p.id
-        )
-      )
-    ORDER BY
-      p.occurred_at DESC,
-      CASE WHEN p.occurred_at = e.occurred_at THEN p.source_event_index ELSE 32767 END DESC,
-      p.id DESC
-    LIMIT 1
-  ) previous_event
-  WHERE e.type = 'sleep_end'
-    AND NOT EXISTS (
-      SELECT 1 FROM explicit_sleep_boundary_events boundary WHERE boundary.event_id = e.id
-    )
-    AND previous_event.type <> 'sleep_start'
-    AND NOT EXISTS (
-      SELECT 1 FROM start_based_sleeps_raw counted WHERE counted.wake_event_id = e.id
-    )
+  CROSS JOIN interval_bounds b
+  WHERE e.occurred_at >= b.border_left
+    AND e.occurred_at < b.border_right
 ),
-sleep_end_without_start AS (
-  SELECT *
-  FROM sleep_end_without_start_raw inferred
-  WHERE NOT EXISTS (
-    SELECT 1
-    FROM explicit_sleep_boundaries explicit
-    WHERE inferred.started_at < explicit.woke_at
-      AND inferred.woke_at > explicit.started_at
-  )
+unique_sleep AS (
+  SELECT
+    id,
+    occurred_at,
+    type,
+    source_event_index,
+    LAG(id) OVER (ORDER BY occurred_at, source_event_index, id) AS prev_event_id,
+    LEAD(id) OVER (ORDER BY occurred_at, source_event_index, id) AS next_event_id,
+    LAG(type) OVER (ORDER BY occurred_at, source_event_index, id) AS prev_event_type,
+    LEAD(type) OVER (ORDER BY occurred_at, source_event_index, id) AS next_event_type
+  FROM prepared_data
+  WHERE (type = 'sleep_end' AND type = next_event_type) IS NOT TRUE
+    AND (type = 'sleep_start' AND type = prev_event_type) IS NOT TRUE
 ),
-inferred_sleeps AS (
-  SELECT id, started_at, wake_event_id, woke_at, duration_min FROM explicit_sleep_boundaries
+prepared_time AS (
+  SELECT
+    u.*,
+    LAG(occurred_at, 1, b.border_left) OVER (ORDER BY occurred_at, source_event_index, id) AS prev_occurred_at,
+    LEAD(occurred_at, 1, LEAST(now(), b.border_right))
+      OVER (ORDER BY occurred_at, source_event_index, id) AS next_occurred_at
+  FROM unique_sleep u
+  CROSS JOIN interval_bounds b
+),
+completed_sleep_intervals AS (
+  SELECT
+    'completed' AS interval_type,
+    id,
+    next_event_id AS boundary_event_id,
+    occurred_at AS started_at,
+    next_occurred_at AS woke_at,
+    EXTRACT(EPOCH FROM (next_occurred_at - occurred_at)) / 60.0 AS duration_min
+  FROM prepared_time
+  WHERE type = 'sleep_start'
+),
+inferential_sleep_end_intervals AS (
+  SELECT
+    'inferential_sleep_end' AS interval_type,
+    id,
+    prev_event_id AS boundary_event_id,
+    prev_occurred_at AS started_at,
+    occurred_at AS woke_at,
+    EXTRACT(EPOCH FROM (occurred_at - prev_occurred_at)) / 60.0 AS duration_min
+  FROM prepared_time
+  WHERE type = 'sleep_end'
+    AND prev_event_type IS DISTINCT FROM 'sleep_start'
+),
+sleep_intervals AS (
+  SELECT * FROM completed_sleep_intervals
   UNION ALL
-  SELECT id, started_at, wake_event_id, woke_at, duration_min FROM start_based_sleeps
-  UNION ALL
-  SELECT id, started_at, wake_event_id, woke_at, duration_min FROM sleep_end_without_start
+  SELECT * FROM inferential_sleep_end_intervals
+),
+total AS (
+  SELECT COALESCE(ROUND(SUM(duration_min))::INTEGER, 0) AS total_minutes
+  FROM sleep_intervals
 )
-SELECT COUNT(*) AS sleep_count, ROUND(SUM(duration_min))::INTEGER AS total_sleep_minutes
-FROM inferred_sleeps;
+SELECT
+  total_minutes,
+  total_minutes / 60 AS hours,
+  total_minutes % 60 AS minutes,
+  CONCAT(total_minutes / 60, ' ч ', total_minutes % 60, ' мин') AS human_duration
+FROM total;
 ```
 
-Для "сегодня ночью" после полного CTE выше добавь фильтр по началу интервала и возвращай строки,
-если пользователь просит показать события:
+Если пользователь просит показать события, используй тот же CTE, но в финальном SELECT верни строки
+из `sleep_intervals`, чтобы в источники попали `id` и `boundary_event_id`:
+Не используй `ARRAY_AGG`, `JSON_AGG`, `jsonb_build_object` или `ROW(...)` для списка интервалов.
+Не делай финальный SELECT только из `total`, если пользователь просит события; сначала верни строки
+интервалов, а итог сложи по этим строкам в ответе. Не выдумывай события и id, которых не было в
+SQL-результате.
 
 ```sql
-night_sleeps AS (
-  SELECT *
-  FROM inferred_sleeps
-  WHERE started_at >= '2026-05-11 20:00:00+03'
-    AND started_at <  '2026-05-12 06:00:00+03'
-)
-SELECT id, wake_event_id, started_at, woke_at, ROUND(duration_min)::INTEGER AS minutes
-FROM night_sleeps
+SELECT interval_type, id, boundary_event_id, started_at, woke_at, ROUND(duration_min)::INTEGER AS minutes
+FROM sleep_intervals
 ORDER BY started_at ASC;
 ```
 
-Для "сегодня" про длительность сна после полного CTE выше добавь локальные границы дня, обрежь
-пересекающиеся интервалы и возвращай строки, если пользователь просит показать события:
+В итоговом ответе всегда укажи строку `Интервал расчёта: <border_left> — <border_right>`.
+Длительность сна пиши в человекочитаемом виде и в минутах, например:
+`Итого: 12 ч 57 мин (777 минут).`
+
+Для среднего сна в день или месяц применяй это же правило отдельно к каждому локальному периоду:
+создай `period_bounds(period_label, border_left, border_right)`, используй `PARTITION BY period_label`
+во всех `LAG`/`LEAD`, посчитай сумму минут по каждому периоду, затем `AVG` по периодам с ненулевым сном.
+Не группируй интервалы по времени начала сна без пересчёта границ периода.
+Если пользователь спрашивает среднее "за всё время" и не задаёт период явно, сначала найди минимальную
+и максимальную локальные даты событий в таблице `events`, построй границы для всех дней или месяцев
+между ними, и не ограничивай расчёт текущей неделей, текущим месяцем или текущим годом.
+В периодическом расчёте `prepared_data` должен выбирать `period_label`, `border_left` и `border_right`
+из `period_bounds`; все оконные функции должны иметь `PARTITION BY period_label`. Не используй
+`DATE(started_at)` или `DATE(occurred_at)` для группировки уже найденных интервалов вместо
+периодических границ.
+Никогда не отправляй SQL с литералами `'<border_left>'` или `'<border_right>'`: это только плейсхолдеры
+в примере для одного интервала.
+
+Готовый шаблон для среднего сна по локальным дням за всё время:
 
 ```sql
-day_bounds AS (
+WITH date_limits AS (
   SELECT
-    '{local_today.isoformat()} 00:00:00+03'::timestamptz AS day_start,
-    '{local_tomorrow.isoformat()} 00:00:00+03'::timestamptz AS day_end
+    MIN(DATE(occurred_at AT TIME ZONE '{tz}')) AS first_day,
+    MAX(DATE(occurred_at AT TIME ZONE '{tz}')) AS last_day
+  FROM events
 ),
-today_sleeps AS (
+period_bounds AS (
   SELECT
-    i.id,
-    i.wake_event_id,
-    GREATEST(i.started_at, b.day_start) AS started_at,
-    LEAST(i.woke_at, b.day_end) AS woke_at,
-    EXTRACT(EPOCH FROM (
-      LEAST(i.woke_at, b.day_end) - GREATEST(i.started_at, b.day_start)
-    )) / 60.0 AS duration_min
-  FROM inferred_sleeps i
-  CROSS JOIN day_bounds b
-  WHERE GREATEST(i.started_at, b.day_start) < LEAST(i.woke_at, b.day_end)
+    day::date AS period_label,
+    (day::date::text || ' 00:00:00+03')::timestamptz AS border_left,
+    ((day::date + 1)::text || ' 00:00:00+03')::timestamptz AS border_right
+  FROM date_limits
+  CROSS JOIN LATERAL generate_series(first_day, last_day, INTERVAL '1 day') AS days(day)
+),
+prepared_data AS (
+  SELECT
+    b.period_label,
+    b.border_left,
+    b.border_right,
+    e.id,
+    e.occurred_at,
+    e.type,
+    e.source_event_index,
+    LAG(e.type) OVER (
+      PARTITION BY b.period_label
+      ORDER BY e.occurred_at, e.source_event_index, e.id
+    ) AS prev_event_type,
+    LEAD(e.type) OVER (
+      PARTITION BY b.period_label
+      ORDER BY e.occurred_at, e.source_event_index, e.id
+    ) AS next_event_type
+  FROM period_bounds b
+  JOIN events e
+    ON e.occurred_at >= b.border_left
+   AND e.occurred_at < b.border_right
+),
+unique_sleep AS (
+  SELECT
+    period_label,
+    border_left,
+    border_right,
+    id,
+    occurred_at,
+    type,
+    source_event_index,
+    LAG(id) OVER (PARTITION BY period_label ORDER BY occurred_at, source_event_index, id) AS prev_event_id,
+    LEAD(id) OVER (PARTITION BY period_label ORDER BY occurred_at, source_event_index, id) AS next_event_id,
+    LAG(type) OVER (PARTITION BY period_label ORDER BY occurred_at, source_event_index, id) AS prev_event_type,
+    LEAD(type) OVER (PARTITION BY period_label ORDER BY occurred_at, source_event_index, id) AS next_event_type
+  FROM prepared_data
+  WHERE (type = 'sleep_end' AND type = next_event_type) IS NOT TRUE
+    AND (type = 'sleep_start' AND type = prev_event_type) IS NOT TRUE
+),
+prepared_time AS (
+  SELECT
+    u.*,
+    LAG(occurred_at, 1, border_left)
+      OVER (PARTITION BY period_label ORDER BY occurred_at, source_event_index, id) AS prev_occurred_at,
+    LEAD(occurred_at, 1, LEAST(now(), border_right))
+      OVER (PARTITION BY period_label ORDER BY occurred_at, source_event_index, id) AS next_occurred_at
+  FROM unique_sleep u
+),
+completed_sleep_intervals AS (
+  SELECT
+    period_label,
+    'completed' AS interval_type,
+    id,
+    next_event_id AS boundary_event_id,
+    occurred_at AS started_at,
+    next_occurred_at AS woke_at,
+    EXTRACT(EPOCH FROM (next_occurred_at - occurred_at)) / 60.0 AS duration_min
+  FROM prepared_time
+  WHERE type = 'sleep_start'
+),
+inferential_sleep_end_intervals AS (
+  SELECT
+    period_label,
+    'inferential_sleep_end' AS interval_type,
+    id,
+    prev_event_id AS boundary_event_id,
+    prev_occurred_at AS started_at,
+    occurred_at AS woke_at,
+    EXTRACT(EPOCH FROM (occurred_at - prev_occurred_at)) / 60.0 AS duration_min
+  FROM prepared_time
+  WHERE type = 'sleep_end'
+    AND prev_event_type IS DISTINCT FROM 'sleep_start'
+),
+sleep_intervals AS (
+  SELECT * FROM completed_sleep_intervals
+  UNION ALL
+  SELECT * FROM inferential_sleep_end_intervals
+),
+period_totals AS (
+  SELECT period_label, COALESCE(ROUND(SUM(duration_min))::INTEGER, 0) AS total_minutes
+  FROM sleep_intervals
+  GROUP BY period_label
 )
-SELECT id, wake_event_id, started_at, woke_at, ROUND(duration_min)::INTEGER AS minutes
-FROM today_sleeps
-ORDER BY started_at ASC;
+SELECT ROUND(AVG(total_minutes))::INTEGER AS average_sleep_minutes_per_day
+FROM period_totals
+WHERE total_minutes > 0;
 ```
 
-В итоговом ответе для такого вопроса укажи:
-`Интервал расчёта: {local_today.isoformat()} 00:00+03 — {local_tomorrow.isoformat()} 00:00+03`.
-
-Для среднего сна в день сначала получи `inferred_sleeps` через полный базовый CTE выше.
-Затем суммируй сон по локальным дням начала сна и только потом бери AVG:
+Для среднего по месяцам используй тот же CTE, но `period_bounds` построй по месяцам:
 
 ```sql
-daily AS (
-  SELECT DATE(started_at AT TIME ZONE '{tz}') AS local_day,
-         SUM(duration_min) AS sleep_minutes
-  FROM inferred_sleeps
-  GROUP BY local_day
+WITH month_limits AS (
+  SELECT
+    DATE_TRUNC('month', MIN(occurred_at AT TIME ZONE '{tz}'))::date AS first_month,
+    DATE_TRUNC('month', MAX(occurred_at AT TIME ZONE '{tz}'))::date AS last_month
+  FROM events
+),
+period_bounds AS (
+  SELECT
+    month_start::date AS period_label,
+    (month_start::date::text || ' 00:00:00+03')::timestamptz AS border_left,
+    ((month_start::date + INTERVAL '1 month')::date::text || ' 00:00:00+03')::timestamptz AS border_right
+  FROM month_limits
+  CROSS JOIN LATERAL generate_series(first_month, last_month, INTERVAL '1 month') AS months(month_start)
 )
-SELECT ROUND(AVG(sleep_minutes))::INTEGER AS average_sleep_minutes_per_day
-FROM daily;
+-- дальше используй те же CTE: prepared_data, unique_sleep, prepared_time, sleep_intervals, period_totals
+-- и в конце:
+SELECT ROUND(AVG(total_minutes))::INTEGER AS average_sleep_minutes_per_month
+FROM period_totals
+WHERE total_minutes > 0;
 ```
-
-Для среднего сна в месяц тоже сначала получи `inferred_sleeps` через полный базовый CTE выше.
-Затем суммируй сон по локальным месяцам начала сна и только потом бери AVG:
-
-```sql
-monthly AS (
-  SELECT DATE_TRUNC('month', started_at AT TIME ZONE '{tz}') AS local_month,
-         SUM(duration_min) AS sleep_minutes
-  FROM inferred_sleeps
-  GROUP BY local_month
-)
-SELECT ROUND(AVG(sleep_minutes))::INTEGER AS average_sleep_minutes_per_month
-FROM monthly;
-```"""
+"""
